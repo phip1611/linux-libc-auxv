@@ -1,0 +1,45 @@
+name: Build
+
+# Triggers the workflow on push or pull request events (for any branch in a repository)
+on: [ push, pull_request ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+          - 1.56.1
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo build --all-targets
+      - run: cargo test --all-targets
+
+      # test 32-bit build (because AT-values are usize)
+      - run: rustup target add i686-unknown-linux-musl
+      - run: cargo build --target i686-unknown-linux-musl
+      - run: cargo test --target i686-unknown-linux-musl
+
+      # test `no_std`-build with some `no_std`-target
+      - run: rustup target add thumbv7em-none-eabihf
+      - run: cargo build --target thumbv7em-none-eabihf
+
+  style_checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+    steps:
+      - uses: actions/checkout@v2
+      - name: Rustfmt
+        run: cargo fmt -- --check
+      - name: Clippy
+        run: cargo clippy
+      - name: Rustdoc
+        run: cargo doc
