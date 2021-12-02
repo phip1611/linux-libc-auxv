@@ -91,6 +91,21 @@ fn main() {
 }
 ```
 
+### Code Example Output
+```text
+There are 2 arguments:
+  0x559e0f07ad80: ./first_arg
+  0x559e0f07ad8c: ./second_arg
+There are 2 environment variables:
+  0x559e0f07ad99: FOO=BAR
+  0x559e0f07ada1: PATH=/bin
+There are 4 auxiliary vector entries/AT variables:
+  AtClktck => 1337
+  AtRandom => 0x559e0f07ad70: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+  AtExecFn => 0x559e0f07adab: ./my_executable
+  AtNull => 0
+```
+
 ## Terminology (in Code)
 The whole data structure is called `InitialLinuxLibcStackLayout` by me. There is no official name. It contains
 the arguments (`argc` and `argv`), the environment variables (`envp` or `envv`), and the auxiliary vector
