@@ -12,7 +12,7 @@ edition = "2021"
 authors = [
     "Philipp Schuster <phip1611@gmail.com>"
 ]
-keywords = ["libc", "auxv", "linux", "auxiliary vector", "crt0"]
+keywords = ["libc", "auxv", "linux", "auxiliary-vector", "crt0"]
 categories = ["os::linux-apis", "no-std"]
 readme = "README.md"
 license = "MIT"
