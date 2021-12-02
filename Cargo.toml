@@ -1,10 +1,11 @@
 [package]
 name = "linux-libc-auxv"
 description = """
-Linux passes an initial stack layout to applications, that contains `argc`, `argv`, `envp`, and the `auxiliary vector`
-right above the stack pointer. The libc of a Linux program parses this sturcture in its `_start`-symbol ("crt0") and
-passes the right pointers as arguments to `main` afterwards. This crate helps to construct and parse this data structure
-in `no_std` environments and for different address spaces.
+Linux passes an initial stack layout to applications, that contains `argc`, `argv`, `envp`, and the
+`auxiliary vector` right above the stack pointer. The libc of a Linux program parses this structure
+in its `_start`-symbol ("crt0") and passes the right pointers as arguments to `main` afterward. This
+crate helps to construct and parse this data structure in `no_std` environments and for different
+address spaces.
 """
 version = "0.1.0"
 edition = "2021"
