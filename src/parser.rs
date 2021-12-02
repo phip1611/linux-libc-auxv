@@ -320,7 +320,6 @@ impl<'a> Iterator for AuxVecIter<'a> {
 mod tests {
     use super::*;
     use crate::{AuxVar, AuxVarType, InitialLinuxLibcStackLayoutBuilder};
-    use std::mem::size_of;
     use std::vec::Vec;
 
     // This test is not optimal, because its some kind of "self fulfilling prophecy".
