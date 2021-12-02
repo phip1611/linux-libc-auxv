@@ -21,30 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-//! Module for [`AuxVarType`].
-
 use enum_iterator::IntoEnumIterator;
-
-/// Type is only used as helper for the [`crate::AuxVecIter`] to parse the binary data.
-/// This field is packed, because on 32-bit [`crate::AuxVarType`] is 32-bit long. We don't
-/// want to have padding between the value and the key there.
-#[repr(C, packed)]
-pub(crate) struct AuxVarSerialized {
-    key: AuxVarType,
-    val: usize,
-}
-
-impl AuxVarSerialized {
-    /// Returns the key.
-    pub const fn key(&self) -> AuxVarType {
-        self.key
-    }
-
-    /// Returns the val.
-    pub const fn val(&self) -> usize {
-        self.val
-    }
-}
 
 /// All types of auxiliary variables that Linux supports for the initial stack.
 /// Also called "AT"-variables in Linux source code.
@@ -65,7 +42,7 @@ pub enum AuxVarType {
     /// entry should be ignored
     AtIgnore = 1,
     /// file descriptor of program
-    AtExecfd = 2,
+    AtExecFd = 2,
     /// program headers for program
     AtPhdr = 3,
     /// size of program header entry
@@ -143,7 +120,7 @@ impl AuxVarType {
         match self {
             AuxVarType::AtNull => false,
             AuxVarType::AtIgnore => false,
-            AuxVarType::AtExecfd => false,
+            AuxVarType::AtExecFd => false,
             AuxVarType::AtPhdr => false,
             AuxVarType::AtPhent => false,
             AuxVarType::AtPhnum => false,
@@ -181,6 +158,13 @@ impl AuxVarType {
         }
     }
 
+    /// Most of the auxiliary vector entries where [`Self::value_is_cstr`] is true,
+    /// represent a null-terminated C-string.
+    pub fn value_is_cstr(self) -> bool {
+        self.value_in_data_area()
+            && [Self::AtPlatform, Self::AtBasePlatform, Self::AtExecFn].contains(&self)
+    }
+
     /// The payload of some [`AuxVarType`] is stored in the aux var data area. Some of these
     /// data is null-terminated. Some has a fixed size. This helps to find out if there
     /// is a fixed size.
@@ -200,20 +184,5 @@ impl From<usize> for AuxVarType {
             }
         }
         panic!("invalid variant {}", val);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    use core::mem::size_of;
-
-    #[test]
-    fn test_serialized_aux_entry_size() {
-        #[cfg(target_arch = "x86")]
-        assert_eq!(size_of::<AuxVarSerialized>(), 8);
-        #[cfg(target_arch = "x86_64")]
-        assert_eq!(size_of::<AuxVarSerialized>(), 16);
     }
 }

@@ -22,13 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 //! Module for [`InitialLinuxLibcStackLayoutBuilder`].
-mod aux_var;
 mod serializer;
 
-pub use aux_var::*;
 use serializer::*;
 
-use crate::{AuxVarSerialized, AuxVarType};
+use crate::{AuxVar, AuxVarSerialized, AuxVarType};
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use core::mem::size_of;
@@ -44,7 +42,7 @@ pub struct InitialLinuxLibcStackLayoutBuilder<'a> {
     arg_v: Vec<&'a [u8]>,
     /// List of C-strings for environment variables.
     env_v: Vec<&'a [u8]>,
-    /// List of (key=value)-pairs
+    /// List of (key=value)-pairs for the auxiliary vector.
     aux_v: BTreeSet<AuxVar<'a>>,
 }
 
@@ -54,9 +52,9 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     pub fn new() -> Self {
         let mut map = BTreeSet::new();
         // this should always be present
-        map.insert(AuxVar::ReferencedData(AuxVarType::AtExecFn, b"\0"));
+        map.insert(AuxVar::new_at_exec_fn(b"\0"));
         // important; keep this in vector early => length calculation of total keys stays correct
-        map.insert(AuxVar::Value(AuxVarType::AtNull, 0));
+        map.insert(AuxVar::new_at_null());
         Self {
             arg_v: vec![],
             env_v: vec![],
@@ -92,7 +90,7 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
 
         // this will also write AT_NULL finally, because it is always at last position in `aux_v`.
         for aux in &self.aux_v {
-            writer.write_aux_entry(*aux)
+            writer.write_aux_entry(aux)
         }
 
         writer.write_finish();
@@ -125,23 +123,6 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     /// * `var`: See [`AuxVar`]. Make sure that the payload is correct, i.e.
     ///          C-strings are null terminated.
     pub fn add_aux_v(mut self, var: AuxVar<'a>) -> Self {
-        // do some validation
-        if var.typ() == AuxVarType::AtRandom {
-            assert_eq!(
-                var.bytes_value().len(),
-                AuxVarType::AtRandom.data_area_val_size_hint().unwrap(),
-                "does not match the expected size"
-            );
-        }
-
-        if var.typ() == AuxVarType::AtExecFn || var.typ() == AuxVarType::AtPlatform {
-            assert_eq!(
-                *var.bytes_value().last().unwrap(),
-                0,
-                "C-string must be null-terminated!"
-            );
-        }
-
         // insert alone is not enough
         if self.aux_v.contains(&var) {
             self.aux_v.replace(var);
@@ -211,7 +192,12 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
 
     /// Returns the total offset from the begin pointer to the final null (u64).
     fn offset_to_final_null(&self) -> usize {
-        let filename_bytes = self.filename().map(|x| x.bytes_value().len()).unwrap_or(0);
+        let filename_bytes = self
+            .filename()
+            .map(|x| x.data().referenced_data())
+            .flatten()
+            .map(|x| x.len())
+            .unwrap_or(0);
         self.offset_to_filename_data_area() + filename_bytes
     }
 
@@ -252,11 +238,11 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     fn aux_data_area_size(&self) -> usize {
         self.aux_v
             .iter()
-            .filter(|x| x.typ().value_in_data_area())
+            .filter(|x| x.key().value_in_data_area())
             // file name stands at end of the structure, before the final null byte
             // and not in the auxv data area
-            .filter(|x| x.typ() != AuxVarType::AtExecFn)
-            .map(|x| x.bytes_value().len())
+            .filter(|x| x.key() != AuxVarType::AtExecFn)
+            .map(|x| x.data().referenced_data().unwrap().len())
             .sum()
     }
 
@@ -266,7 +252,7 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     // Actually, I'm not sure if libc implementations care about the pointer location, as long as
     // the pointer is correct..
     fn filename(&self) -> Option<&AuxVar> {
-        self.aux_v.iter().find(|x| x.typ() == AuxVarType::AtExecFn)
+        self.aux_v.iter().find(|x| x.key() == AuxVarType::AtExecFn)
     }
 }
 
@@ -277,8 +263,7 @@ mod tests {
 
     #[test]
     fn test_builder_write_size() {
-        let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, b"\0"));
+        let builder = InitialLinuxLibcStackLayoutBuilder::new();
 
         let mut expected_size = 8;
         // 3 * 8: argc, argv[0]=0, envv[0]=0 + padding to 16 byte + null byte
@@ -315,11 +300,8 @@ mod tests {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
             .add_arg_v(b"Foo\0")
             .add_env_v(b"BAR=FOO\0")
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
-            .add_aux_v(AuxVar::ReferencedData(
-                AuxVarType::AtExecFn,
-                b"./executable\0",
-            ));
+            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"))
+            .add_aux_v(AuxVar::new_at_exec_fn(b"./executable\0"));
 
         assert_eq!(builder.offset_to_argv_key_area(), 8);
         // + 8 + 8 (one entry + null byte)
@@ -363,19 +345,19 @@ mod tests {
                 .iter()
                 .last()
                 .unwrap()
-                .typ(),
+                .key(),
             AuxVarType::AtNull
         );
         assert_eq!(
             InitialLinuxLibcStackLayoutBuilder::new()
-                .add_aux_v(AuxVar::Value(AuxVarType::AtClktck, 1337))
-                .add_aux_v(AuxVar::Value(AuxVarType::AtNull, 0))
-                .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
+                .add_aux_v(AuxVar::new_at_clktck(0x1337))
+                .add_aux_v(AuxVar::new_at_null())
+                .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"))
                 .aux_v
                 .iter()
                 .last()
                 .unwrap()
-                .typ(),
+                .key(),
             AuxVarType::AtNull
         );
     }
@@ -385,13 +367,10 @@ mod tests {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
             .add_arg_v(b"Foo\0")
             .add_env_v(b"BAR=FOO\0")
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
-            .add_aux_v(AuxVar::ReferencedData(
-                AuxVarType::AtExecFn,
-                b"./executable\0",
-            ))
-            .add_aux_v(AuxVar::Value(AuxVarType::AtUid, 0xdeadbeef))
-            .add_aux_v(AuxVar::Value(AuxVarType::AtClktck, 123456));
+            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"))
+            .add_aux_v(AuxVar::new_at_exec_fn(b"./executable\0"))
+            .add_aux_v(AuxVar::new_at_uid(0xdeadbeef))
+            .add_aux_v(AuxVar::new_at_clktck(123456));
         let mut buf = vec![0; builder.total_size()];
 
         unsafe {
@@ -413,16 +392,15 @@ mod tests {
     #[should_panic]
     #[test]
     fn test_panic_filename_not_null_terminated() {
-        InitialLinuxLibcStackLayoutBuilder::new()
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, b""));
+        InitialLinuxLibcStackLayoutBuilder::new().add_aux_v(AuxVar::new_at_exec_fn(b""));
     }
 
     #[test]
     fn test_default_filename_gets_replaced() {
         let expected = b"foo\0";
-        let b = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, expected));
-        let actual = b.filename().unwrap().bytes_value();
+        let b =
+            InitialLinuxLibcStackLayoutBuilder::new().add_aux_v(AuxVar::new_at_exec_fn(expected));
+        let actual = b.filename().unwrap().data().referenced_data().unwrap();
         assert_eq!(actual, expected);
     }
 }

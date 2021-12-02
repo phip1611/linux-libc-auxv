@@ -21,7 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-use crate::{AuxVarSerialized, AuxVarType};
+use crate::{AuxVar, AuxVarData, AuxVarSerialized, AuxVarType};
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 
@@ -192,83 +192,6 @@ fn c_str_len(mut ptr: *const u8) -> usize {
     i
 }
 
-/// Unlike [`crate::AuxVar`], this type is only used for reading/parsing. Because the data structure
-/// references addresses in the address space of the target user process, this solution enables
-/// us to view the pointers, without automatically dereference them, for example during
-/// debug formatting. Otherwise, we would get memory errors, when `user_addr != write/host_addr`.
-pub struct AuxVarRef<'a> {
-    key: AuxVarType,
-    /// Depending on the [`AuxVarType`], this might be a pointer to `data`.
-    val: usize,
-    _marker: PhantomData<&'a ()>,
-}
-
-impl<'a> AuxVarRef<'a> {
-    /// Returns [`AuxVarType`].
-    pub const fn key(&self) -> AuxVarType {
-        self.key
-    }
-
-    /// Returns the value or address
-    pub const fn val(&self) -> usize {
-        self.val
-    }
-
-    /// If this aux var references data in the aux vec data area,
-    /// this returns something.
-    ///
-    /// # Safety
-    /// This function is safe, as long as the pointer to data is valid and mapped
-    /// in the address space of the caller.
-    pub unsafe fn data(&self) -> Option<&'a [u8]> {
-        if self.key.value_in_data_area() {
-            let data_ptr = self.val as *const u8;
-            let len = self
-                .key
-                .data_area_val_size_hint()
-                // + null byte
-                .unwrap_or_else(|| c_str_len(data_ptr) + 1);
-            let slice = core::slice::from_raw_parts(data_ptr, len);
-            Some(slice)
-        } else {
-            None
-        }
-    }
-
-    /// Interprets the result from [`Self::data`] as valid UTF8,
-    /// because most variables reference null terminated C-strings.
-    ///
-    /// Callers must be sure about, what they are doing.
-    ///
-    /// # Safety
-    /// This function is safe, as long as the pointer to data is valid and mapped
-    /// in the address space of the caller.
-    pub unsafe fn c_str(&self) -> Option<&'a str> {
-        self.data()
-            .map(|utf8| unsafe { core::str::from_utf8_unchecked(utf8) })
-    }
-}
-
-impl<'a> Debug for AuxVarRef<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let mut debug = f.debug_struct("AuxVarRef");
-        debug.field("key", &self.key);
-        if self.key.value_in_data_area() {
-            // print as hex
-            debug.field("data_ptr", &(self.val as *const u8));
-
-            // this will only work in tests, because there I make sure the address space matches
-            #[cfg(test)]
-            debug.field("data", unsafe { &self.data().unwrap() });
-            #[cfg(test)]
-            debug.field("data_str", unsafe { &self.c_str().unwrap() });
-        } else {
-            debug.field("data", &(self.val as *const u8));
-        }
-        debug.finish()
-    }
-}
-
 /// Iterator over all entries in the auxiliary vector.
 #[derive(Debug)]
 pub struct AuxVecIter<'a> {
@@ -288,7 +211,7 @@ impl<'a> AuxVecIter<'a> {
 }
 
 impl<'a> Iterator for AuxVecIter<'a> {
-    type Item = AuxVarRef<'a>;
+    type Item = AuxVar<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -307,11 +230,24 @@ impl<'a> Iterator for AuxVecIter<'a> {
 
             self.ptr = unsafe { self.ptr.add(1) };
 
-            Some(AuxVarRef {
-                key: aux_var_ser.key(),
-                val: aux_var_ser.val(),
-                _marker: Default::default(),
-            })
+            let referenced_data = if aux_var_ser.key().value_in_data_area() {
+                let data_ptr = aux_var_ser.val() as *const u8;
+                let len = aux_var_ser
+                    .key()
+                    .data_area_val_size_hint()
+                    // + null byte
+                    .unwrap_or_else(|| c_str_len(data_ptr) + 1);
+                let slice = unsafe { core::slice::from_raw_parts(data_ptr, len) };
+                Some(slice)
+            } else {
+                None
+            };
+
+            let aux_data = referenced_data
+                .map(|x| AuxVarData::ReferencedData(x))
+                .unwrap_or(AuxVarData::Value(aux_var_ser.val()));
+            let aux_var = AuxVar::new_generic(aux_var_ser.key(), aux_data);
+            Some(aux_var)
         }
     }
 }
@@ -333,8 +269,8 @@ mod tests {
             .add_env_v(b"ENV1=FOO\0")
             .add_env_v(b"ENV2=BAR\0")
             .add_env_v(b"ENV3=FOOBAR\0")
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
-            .add_aux_v(AuxVar::Value(AuxVarType::AtUid, 0xdeadbeef));
+            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"))
+            .add_aux_v(AuxVar::new_at_uid(0xdeadbeef));
         let mut buf = vec![0; builder.total_size()];
 
         unsafe {
@@ -363,8 +299,8 @@ mod tests {
             .add_env_v(b"ENV1=FOO\0")
             .add_env_v(b"ENV2=BAR\0")
             .add_env_v(b"ENV3=FOOBAR\0")
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
-            .add_aux_v(AuxVar::Value(AuxVarType::AtUid, 0xdeadbeef));
+            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"))
+            .add_aux_v(AuxVar::new_at_uid(0xdeadbeef));
         let mut buf = Vec::with_capacity(builder.total_size());
         unsafe {
             buf.set_len(buf.capacity());

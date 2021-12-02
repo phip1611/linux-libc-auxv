@@ -56,9 +56,9 @@ SOFTWARE.
 //!     .add_arg_v(b"./second_arg\0")
 //!     .add_env_v(b"FOO=BAR\0")
 //!     .add_env_v(b"PATH=/bin\0")
-//!     .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, b"./my_executable\0"))
-//!     .add_aux_v(AuxVar::Value(AuxVarType::AtClktck, 1337))
-//!     .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtRandom, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]));
+//!     .add_aux_v(AuxVarBuilder::ReferencedData(AuxVarType::AtExecFn, b"./my_executable\0"))
+//!     .add_aux_v(AuxVarBuilder::Value(AuxVarType::AtClktck, 1337))
+//!     .add_aux_v(AuxVarBuilder::ReferencedData(AuxVarType::AtRandom, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]));
 //! let mut buf = vec![0; builder.total_size()];
 //!
 //! // user base addr is the initial stack pointer in the user address space
@@ -151,11 +151,11 @@ SOFTWARE.
 #![deny(rustdoc::all)]
 #![no_std]
 
-mod aux_vars;
+mod aux_var;
 mod builder;
 mod parser;
 
-pub use aux_vars::*;
+pub use aux_var::*;
 pub use builder::*;
 pub use parser::*;
 
