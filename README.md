@@ -63,16 +63,31 @@ fn main() {
     }
 
     let parsed = InitialLinuxLibcStackLayout::from(buf.as_slice());
-    dbg!(parsed.argc());
-    // ptr iter is safe for other address spaces
-    dbg!(parsed.argv_ptr_iter().collect::<Vec<_>>());
-    dbg!(parsed.argv_iter().collect::<Vec<_>>());
-    // ptr iter is safe for other address spaces
-    dbg!(parsed.envv_ptr_iter().collect::<Vec<_>>());
-    dbg!(parsed.envv_iter().collect::<Vec<_>>());
 
+    println!("There are {} arguments:", parsed.argc());
+    // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
+    for (arg_ptr, arg_val) in parsed.argv_ptr_iter().zip(parsed.argv_iter()) {
+        println!("  {:?}: {}", arg_ptr, arg_val);
+    }
+    println!("There are {} environment variables:", parsed.envv_ptr_iter().count());
+    // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
+    for (env_ptr, env_val) in parsed.envv_ptr_iter().zip(parsed.envv_iter()) {
+        println!("  {:?}: {}", env_ptr, env_val);
+    }
+
+    println!("There are {} auxiliary vector entries/AT variables:", parsed.aux_iter().count());
     // will segfault, if user_ptr != write_ptr (i.e. other address space)
-    dbg!(parsed.aux_iter().collect::<Vec<_>>());
+    for aux in parsed.aux_iter() {
+        if unsafe { aux.data().is_some() } {
+            if aux.key() == AuxVarType::AtRandom {
+                println!("  {:>12?} => {:?}: {:?}", aux.key(), aux.val() as *const u8, unsafe { aux.data().unwrap() });
+            } else {
+                println!("  {:>12?} => {:?}: {}", aux.key(), aux.val() as *const u8, unsafe { aux.c_str().unwrap() });
+            }
+        } else {
+            println!("  {:>12?} => {}", aux.key(), aux.val());
+        }
+    }
 }
 ```
 
