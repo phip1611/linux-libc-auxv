@@ -21,8 +21,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-use crate::{AuxVar, AuxVarData, AuxVarSerialized, AuxVarType};
-use core::fmt::{Debug, Formatter};
+use crate::{AuxVar, AuxVarSerialized, AuxVarType};
+use core::fmt::Debug;
 use core::marker::PhantomData;
 
 /// Wrapper around a slice of data, that represents the data structure that Linux passes to the
@@ -178,7 +178,7 @@ impl<'a> Iterator for CstrIter<'a> {
 }
 
 /// Returns the length of a C-string without the terminating null byte.
-fn c_str_len(mut ptr: *const u8) -> usize {
+pub(crate) fn c_str_len(mut ptr: *const u8) -> usize {
     let mut i = 0;
     while unsafe { *ptr != 0 } {
         ptr = unsafe { ptr.add(1) };
@@ -195,13 +195,13 @@ fn c_str_len(mut ptr: *const u8) -> usize {
 /// Iterator over all entries in the auxiliary vector.
 #[derive(Debug)]
 pub struct AuxVecIter<'a> {
-    ptr: *const AuxVarSerialized,
+    ptr: *const AuxVarSerialized<'a>,
     done: bool,
     _marker: PhantomData<&'a ()>,
 }
 
 impl<'a> AuxVecIter<'a> {
-    fn new(ptr: *const AuxVarSerialized) -> Self {
+    fn new(ptr: *const AuxVarSerialized<'a>) -> Self {
         Self {
             ptr,
             done: false,
@@ -230,24 +230,7 @@ impl<'a> Iterator for AuxVecIter<'a> {
 
             self.ptr = unsafe { self.ptr.add(1) };
 
-            let referenced_data = if aux_var_ser.key().value_in_data_area() {
-                let data_ptr = aux_var_ser.val() as *const u8;
-                let len = aux_var_ser
-                    .key()
-                    .data_area_val_size_hint()
-                    // + null byte
-                    .unwrap_or_else(|| c_str_len(data_ptr) + 1);
-                let slice = unsafe { core::slice::from_raw_parts(data_ptr, len) };
-                Some(slice)
-            } else {
-                None
-            };
-
-            let aux_data = referenced_data
-                .map(|x| AuxVarData::ReferencedData(x))
-                .unwrap_or(AuxVarData::Value(aux_var_ser.val()));
-            let aux_var = AuxVar::new_generic(aux_var_ser.key(), aux_data);
-            Some(aux_var)
+            Some(AuxVar::from(aux_var_ser))
         }
     }
 }
@@ -338,7 +321,7 @@ mod tests {
     #[should_panic]
     #[test]
     fn test_c_str_len_panic() {
-        // expect panic because there is noll terminating null
+        // expect panic because there is no terminating null
         let _ = c_str_len("hallo".repeat(100000).as_ptr());
     }
 }
