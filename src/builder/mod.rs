@@ -26,6 +26,7 @@ mod serializer;
 
 use serializer::*;
 
+use crate::cstr_util::{cstr_contains_at_most_terminating_null_byte, cstr_len_with_nullbyte};
 use crate::{AuxVar, AuxVarSerialized, AuxVarType};
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -39,9 +40,9 @@ use core::mem::size_of;
 #[derive(Debug, Default)]
 pub struct InitialLinuxLibcStackLayoutBuilder<'a> {
     /// List of C-strings for program arguments/argument variables.
-    arg_v: Vec<&'a [u8]>,
+    arg_v: Vec<&'a str>,
     /// List of C-strings for environment variables.
-    env_v: Vec<&'a [u8]>,
+    env_v: Vec<&'a str>,
     /// List of (key=value)-pairs for the auxiliary vector.
     aux_v: BTreeSet<AuxVar<'a>>,
 }
@@ -96,23 +97,33 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
         writer.write_finish();
     }
 
-    /// Adds an argument. An argument is an null-terminated C-string.
+    /// Adds an argument. An argument in the final Linux stack layout is a null-terminated C-string.
     ///
     /// # Parameters
-    /// * `c_str` null-terminated c-string
-    pub fn add_arg_v(mut self, c_str: &'a [u8]) -> Self {
-        assert_eq!(c_str[c_str.len() - 1], 0, "c_str must be null-terminated!");
+    /// * `c_str` Terminating null byte is not mandatory, but null-bytes in-between will result
+    ///           in a panic.
+    pub fn add_arg_v(mut self, c_str: &'a str) -> Self {
+        assert!(
+            cstr_contains_at_most_terminating_null_byte(c_str.as_bytes()),
+            "null bytes are only allowed at the end!"
+        );
+
         self.arg_v.push(c_str);
         self
     }
 
-    /// Adds an environmental variable. An envv is a null-terminated C-string with
-    /// a format of `KEY=VALUE\0`.
+    /// Adds an environmental variable. An envv in the final Linux stack layout is a null-terminated
+    /// C-string with a format of `KEY=VALUE\0`.
     ///
     /// # Parameters
-    /// * `c_str` null-terminated c-string
-    pub fn add_env_v(mut self, c_str: &'a [u8]) -> Self {
-        assert_eq!(c_str[c_str.len() - 1], 0, "c_str must be null-terminated!");
+    /// * `c_str` Terminating null byte is not mandatory, but null-bytes in-between will result
+    ///           in a panic.
+    pub fn add_env_v(mut self, c_str: &'a str) -> Self {
+        assert!(
+            cstr_contains_at_most_terminating_null_byte(c_str.as_bytes()),
+            "null bytes are only allowed at the end!"
+        );
+
         self.env_v.push(c_str);
         self
     }
@@ -127,8 +138,11 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
 
         // if no terminating null byte is present, it is okay for convenience.
         // This can be added manually in the serializer
-        if var.key().value_is_cstr() && var.cstr_contains_null() && !var.cstr_null_terminated() {
-            panic!("null bytes are only allowed at the end!");
+        if let Some(cstr) = var.value_payload_cstr() {
+            assert!(
+                cstr_contains_at_most_terminating_null_byte(cstr.as_bytes()),
+                "null bytes are only allowed at the end!"
+            );
         }
 
         // insert alone is not enough - either insert or replace
@@ -170,6 +184,7 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
         // TODO seems like Linux does some more magic for stack alignment
         //  https://elixir.bootlin.com/linux/v5.15.5/source/fs/binfmt_elf.c#L200
         //  Maybe solve this in the future?! IMHO this looks negligible.
+        //  Some L1 Cache optimizations on x86_64
 
         // align up to next 16 byte boundary
         if sum % 16 != 0 {
@@ -203,14 +218,7 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
         // bytes for the filename C-string including the final null byte
         let filename_bytes = self
             .filename()
-            .map(|aux| {
-                let cstr = aux.value_payload_cstr().unwrap();
-                if aux.cstr_null_terminated() {
-                    cstr.len()
-                } else {
-                    cstr.len() + 1
-                }
-            })
+            .map(|aux| cstr_len_with_nullbyte(aux.value_payload_cstr().unwrap().as_bytes()))
             .unwrap_or(0);
         self.offset_to_filename_data_area() + filename_bytes
     }
@@ -238,13 +246,19 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     /// Returns the sum of bytes, required to store the C-string of each arg, including
     /// terminating null bytes.
     fn argv_data_area_size(&self) -> usize {
-        self.arg_v.iter().map(|x| x.len()).sum()
+        self.arg_v
+            .iter()
+            .map(|x| cstr_len_with_nullbyte(x.as_bytes()))
+            .sum()
     }
 
     /// Returns the sum of bytes, required to store the C-string of each env var, including
     /// terminating null bytes.
     fn envv_data_area_size(&self) -> usize {
-        self.env_v.iter().map(|x| x.len()).sum()
+        self.env_v
+            .iter()
+            .map(|x| cstr_len_with_nullbyte(x.as_bytes()))
+            .sum()
     }
 
     /// Returns the number of all additional aux vec data in the aux data area, except for
@@ -258,19 +272,9 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
             // AtExecFn: file name stands at end of the structure, before the final null byte
             //           and not in the auxv data area
             .filter(|x| x.key() != AuxVarType::ExecFn)
-            .map(|aux| {
-                // for convenience reasons, users can enter string slices without terminating
-                // null byte - take care here manually!
-                if let Some(c_str) = aux.value_payload_cstr() {
-                    if aux.cstr_null_terminated() {
-                        c_str.len()
-                    } else {
-                        c_str.len() + 1
-                    }
-                } else {
-                    aux.value_payload_bytes().unwrap().len()
-                }
-            })
+            // for convenience reasons, users can enter string slices without terminating
+            // null byte - take care here manually!
+            .map(|aux| aux.data_area_serialize_byte_count())
             .sum()
     }
 
@@ -326,8 +330,8 @@ mod tests {
     #[test]
     fn test_builder_write_size_2() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_arg_v(b"Foo\0")
-            .add_env_v(b"BAR=FOO\0")
+            .add_arg_v("Foo")
+            .add_env_v("BAR=FOO")
             .add_aux_v(AuxVar::Platform("x86_64"))
             .add_aux_v(AuxVar::ExecFn("./executable"));
 
@@ -393,8 +397,8 @@ mod tests {
     #[test]
     fn test_builder_serializes_data() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_arg_v(b"Foo\0")
-            .add_env_v(b"BAR=FOO\0")
+            .add_arg_v("Foo")
+            .add_env_v("BAR=FOO\0")
             .add_aux_v(AuxVar::Platform("x86_64"))
             .add_aux_v(AuxVar::ExecFn("./executable"))
             .add_aux_v(AuxVar::Uid(0xdeadbeef))

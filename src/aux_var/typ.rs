@@ -21,8 +21,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+use core::cmp::Ordering;
 use enum_iterator::IntoEnumIterator;
-use std::cmp::Ordering;
 
 /// All types of auxiliary variables that Linux supports for the initial stack.
 /// Also called "AT"-variables in Linux source code.

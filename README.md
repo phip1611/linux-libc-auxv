@@ -53,10 +53,11 @@ use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStack
 /// and aux vars. It serializes them and parses the structure afterwards.
 fn main() {
     let builder = InitialLinuxLibcStackLayoutBuilder::new()
-        .add_arg_v(b"./first_arg\0")
-        .add_arg_v(b"./second_arg\0")
-        .add_env_v(b"FOO=BAR\0")
-        .add_env_v(b"PATH=/bin\0")
+        // can contain terminating zero; not mandatory in the builder
+        .add_arg_v("./first_arg\0")
+        .add_arg_v("./second_arg")
+        .add_env_v("FOO=BAR\0")
+        .add_env_v("PATH=/bin")
         .add_aux_v(AuxVar::ExecFn("./my_executable"))
         .add_aux_v(AuxVar::Clktck(0x1337))
         .add_aux_v(AuxVar::Random([

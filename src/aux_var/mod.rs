@@ -25,7 +25,7 @@ SOFTWARE.
 mod serialized;
 mod typ;
 
-use crate::cstr_util::c_str_len_ptr;
+use crate::cstr_util::{c_str_len_ptr, c_str_null_terminated};
 use core::cmp::Ordering;
 use core::fmt::Debug;
 pub(crate) use serialized::*;
@@ -195,7 +195,7 @@ impl<'a> AuxVar<'a> {
     }
 
     /// Returns the [`AuxVarType`] this aux var corresponds to.
-    pub fn key(&self) -> AuxVarType {
+    pub const fn key(&self) -> AuxVarType {
         match self {
             AuxVar::Null => AuxVarType::Null,
             AuxVar::Ignore(_) => AuxVarType::Ignore,
@@ -290,7 +290,7 @@ impl<'a> AuxVar<'a> {
 
     /// Returns a value, if the corresponding auxiliary vector entry corresponds to a basic
     /// value/integer, and not a pointer, flags, or a boolean.
-    pub fn value_integer(&self) -> Option<usize> {
+    pub const fn value_integer(&self) -> Option<usize> {
         match self {
             AuxVar::Ignore(val) => Some(*val),
             AuxVar::ExecFd(val) => Some(*val),
@@ -318,7 +318,7 @@ impl<'a> AuxVar<'a> {
     }
 
     /// Returns a value, if the corresponding auxiliary vector entry is of type [`AuxVarType::Flags`].
-    pub fn value_flags(&self) -> Option<AuxVarFlags> {
+    pub const fn value_flags(&self) -> Option<AuxVarFlags> {
         match self {
             AuxVar::Flags(flags) => Some(*flags),
             _ => None,
@@ -327,7 +327,7 @@ impl<'a> AuxVar<'a> {
 
     /// Returns a value, if the corresponding auxiliary vector entry corresponds to a
     /// boolean, and not a pointer, flags, or a basic value/integer.
-    pub fn value_boolean(&self) -> Option<bool> {
+    pub const fn value_boolean(&self) -> Option<bool> {
         match self {
             AuxVar::NotElf(val) => Some(*val),
             AuxVar::Secure(val) => Some(*val),
@@ -339,7 +339,7 @@ impl<'a> AuxVar<'a> {
     /// pointer, and not a boolean, flags, or a basic value/integer. This only affects
     /// entries, that point to memory outside of the initial stack layout, i.e. the aux
     /// vector data area.
-    pub fn value_ptr(&self) -> Option<*const u8> {
+    pub const fn value_ptr(&self) -> Option<*const u8> {
         match self {
             AuxVar::Phdr(val) => Some(*val),
             AuxVar::Base(val) => Some(*val),
@@ -369,7 +369,7 @@ impl<'a> AuxVar<'a> {
     ///
     /// This function is safe, because the creation during parsing already guarantee memory
     /// safety (the addresses are accessed).
-    pub fn value_payload_cstr(&'a self) -> Option<&'a str> {
+    pub const fn value_payload_cstr(&'a self) -> Option<&'a str> {
         match self {
             AuxVar::Platform(val) => Some(*val),
             AuxVar::BasePlatform(val) => Some(*val),
@@ -381,40 +381,16 @@ impl<'a> AuxVar<'a> {
     // #########################
     // helper methods to validate the object in the builder
 
-    /// Tells whether the C-string contains a null byte at an arbitrary position.
-    /// Function is used for validation in the builder.
-    ///
-    /// # Panics
-    /// Panics if the referenced data of this aux var is not a C-string.
-    pub(crate) fn cstr_contains_null(&self) -> bool {
-        self.value_payload_cstr().unwrap().as_bytes().contains(&0)
-    }
-
-    /// Tells whether the C-string contains a terminating null byte at the end.
-    /// Function is used for validation in the builder.
-    ///
-    /// # Panics
-    /// Panics if the referenced data of this aux var is not a C-string.
-    // TODO remove?!
-    pub(crate) fn cstr_null_terminated(&self) -> bool {
-        let last_byte = self
-            .value_payload_cstr()
-            .unwrap()
-            .as_bytes()
-            .last()
-            .unwrap();
-        *last_byte == 0
-    }
-
     /// Returns the total number of bytes that needs to be written into the aux vec
     /// data area. This includes the null byte for c strings.
     /// Function is used as helper in tests.
-    #[cfg(test)]
     pub(crate) fn data_area_serialize_byte_count(&self) -> usize {
         let mut bytes = 0;
         bytes += self.value_payload_bytes().map(|x| x.len()).unwrap_or(0);
         bytes += self.value_payload_cstr().map(|x| x.len()).unwrap_or(0);
-        if self.value_payload_cstr().is_some() && !self.cstr_null_terminated() {
+        if self.value_payload_cstr().is_some()
+            && !c_str_null_terminated(self.value_payload_cstr().unwrap().as_bytes())
+        {
             bytes + 1
         } else {
             bytes
@@ -458,5 +434,26 @@ mod tests {
         set.insert(AuxVar::Clktck(0x1337));
         set.insert(AuxVar::ExecFn("./executable"));
         assert_eq!(set.iter().last().unwrap().key(), AuxVarType::Null);
+    }
+
+    #[test]
+    fn test_data_area_serialize_byte_count() {
+        assert_eq!(
+            AuxVar::ExecFn("./executable").data_area_serialize_byte_count(),
+            13
+        );
+        assert_eq!(
+            AuxVar::ExecFn("./executable\0").data_area_serialize_byte_count(),
+            13
+        );
+        assert_eq!(
+            AuxVar::Platform("x86_64").data_area_serialize_byte_count(),
+            7
+        );
+        assert_eq!(
+            AuxVar::Platform("x86_64\0").data_area_serialize_byte_count(),
+            7
+        );
+        assert_eq!(AuxVar::Random([0; 16]).data_area_serialize_byte_count(), 16);
     }
 }

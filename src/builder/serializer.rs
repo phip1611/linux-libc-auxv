@@ -102,7 +102,7 @@ impl<'a> AuxvSerializer<'a> {
     }
 
     /// Writes the next arg into the data structure.
-    pub unsafe fn write_arg(&mut self, c_str: &[u8]) {
+    pub unsafe fn write_arg(&mut self, c_str: &str) {
         assert!(
             self.builder.arg_v.len() > self.arg_write_count,
             "More arguments have been written than capacity is available!"
@@ -118,7 +118,7 @@ impl<'a> AuxvSerializer<'a> {
         self.argv_data_write_ptr = self.argv_data_write_ptr.add(c_str.len());
 
         let write_ptr_ptr = &mut self.argv_data_write_ptr as *mut _;
-        self.write_cstr_null_byte_if_not_present(c_str, write_ptr_ptr);
+        self.write_cstr_null_byte_if_not_present(c_str.as_bytes(), write_ptr_ptr);
 
         self.arg_write_count += 1;
     }
@@ -132,7 +132,7 @@ impl<'a> AuxvSerializer<'a> {
     }
 
     /// Writes the next env var into the data structure.
-    pub unsafe fn write_env(&mut self, c_str: &[u8]) {
+    pub unsafe fn write_env(&mut self, c_str: &str) {
         assert!(
             self.builder.env_v.len() > self.env_write_count,
             "More arguments have been written than capacity is available!"
@@ -148,7 +148,7 @@ impl<'a> AuxvSerializer<'a> {
         self.envv_data_write_ptr = self.envv_data_write_ptr.add(c_str.len());
 
         let write_ptr_ptr = &mut self.envv_data_write_ptr as *mut _;
-        self.write_cstr_null_byte_if_not_present(c_str, write_ptr_ptr);
+        self.write_cstr_null_byte_if_not_present(c_str.as_bytes(), write_ptr_ptr);
 
         self.env_write_count += 1;
     }
@@ -262,6 +262,7 @@ impl<'a> AuxvSerializer<'a> {
 #[cfg(test)]
 mod tests {
     use crate::builder::serializer::AuxvSerializer;
+    use crate::cstr_util::cstr_len_with_nullbyte;
     use crate::{AuxVar, AuxVarSerialized, AuxVarType, InitialLinuxLibcStackLayoutBuilder};
     use std::mem::size_of;
 
@@ -331,14 +332,16 @@ mod tests {
     #[test]
     fn test_byte_writer_full() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_arg_v(b"arg1\0")
-            .add_arg_v(b"arg2\0")
-            .add_arg_v(b"arg3\0")
-            .add_env_v(b"ENV1=FOO1\0")
-            .add_env_v(b"ENV2=FOO2\0")
-            .add_env_v(b"ENV3=FOO3\0")
+            .add_arg_v("arg1")
+            .add_arg_v("arg2\0")
+            .add_arg_v("arg3")
+            .add_env_v("ENV1=FOO1")
+            // works with both: with or without additional null byte
+            .add_env_v("ENV2=FOO2\0")
+            .add_env_v("ENV3=FOO3")
             .add_aux_v(AuxVar::Clktck(0x1337))
-            .add_aux_v(AuxVar::Platform("x86_64"));
+            .add_aux_v(AuxVar::Platform("x86_64"))
+            .add_aux_v(AuxVar::ExecFn("./executable\0"));
         let mut buf = vec![0_u8; builder.total_size()];
         let ptr = buf.as_ptr();
         let mut writer = AuxvSerializer::new(&builder, buf.as_mut_ptr(), ptr as u64);
@@ -354,16 +357,16 @@ mod tests {
             assert!(builder.offset_to_envv_key_area() > builder.offset_to_argv_key_area());
         }
 
-        println!(
+        /*println!(
             "{:?} - {:?}",
             builder.aux_keys_size(),
             builder.aux_data_area_size()
-        );
+        );*/
 
-        println!(
+        /*println!(
             "{:?} - {:?}",
             writer.aux_data_write_ptr, writer.aux_key_write_ptr
-        );
+        );*/
 
         // check argv
         unsafe {
@@ -387,7 +390,7 @@ mod tests {
 
                 // check that the correct length was written into the data area
                 // includes null byte already
-                arg_byte_count += arg.len();
+                arg_byte_count += cstr_len_with_nullbyte(arg.as_bytes());
                 let ptr_diff =
                     writer.argv_data_write_ptr as usize - initial_argv_data_write_ptr as usize;
                 assert_eq!(ptr_diff, arg_byte_count, "must write the correct amount of bytes of all c-strings for the args and update the write pointers!");
@@ -411,7 +414,7 @@ mod tests {
 
                 // check that the correct length was written into the data area
                 // includes null byte already
-                env_byte_count += env.len();
+                env_byte_count += cstr_len_with_nullbyte(env.as_bytes());
                 let ptr_diff =
                     writer.envv_data_write_ptr as usize - initial_envv_data_write_ptr as usize;
                 assert_eq!(ptr_diff, env_byte_count, "must write the correct amount of bytes of all c-strings for the env vars and update the write pointers!");
@@ -431,7 +434,6 @@ mod tests {
             let mut aux_data_bytes_written = 0;
 
             for aux in &builder.aux_v {
-                dbg!("foo");
                 writer.write_aux_entry(aux);
                 assert_eq!(
                     *writer
@@ -452,10 +454,11 @@ mod tests {
                     );
                 } else {
                     // special treatment for this key
+                    let bytes_written_len = aux.data_area_serialize_byte_count();
                     if aux.key() == AuxVarType::ExecFn {
                         let slice = core::slice::from_raw_parts(
-                            writer.filename_write_ptr,
-                            aux.value_payload_cstr().unwrap().len(),
+                            writer.filename_write_ptr.sub(bytes_written_len),
+                            bytes_written_len,
                         );
                         assert_eq!(
                             aux.value_payload_cstr().unwrap().as_bytes(),
@@ -463,7 +466,7 @@ mod tests {
                             "must write the correct filename into the right location"
                         );
                     } else {
-                        aux_data_bytes_written += aux.data_area_serialize_byte_count();
+                        aux_data_bytes_written += bytes_written_len;
                         assert_eq!(
                             initial_aux_data_write_ptr.add(aux_data_bytes_written),
                             writer.aux_data_write_ptr,
@@ -499,7 +502,7 @@ mod tests {
             assert!(writer.envv_data_write_ptr > writer.argv_data_write_ptr);
             assert!(writer.argv_data_write_ptr > writer.aux_data_write_ptr);
 
-            println!("{}", builder.offset_to_aux_data_area());
+            /*println!("{}", builder.offset_to_aux_data_area());
             println!(
                 "{:?} - {:?}",
                 writer.get_write_ptr_offset(writer.envv_data_write_ptr),
@@ -508,7 +511,7 @@ mod tests {
             println!(
                 "{:?} - {:?}",
                 writer.aux_data_write_ptr, writer.aux_key_write_ptr
-            );
+            );*/
             assert!(writer.aux_data_write_ptr > writer.aux_key_write_ptr);
 
             assert!(writer.aux_key_write_ptr > writer.envv_key_write_ptr);

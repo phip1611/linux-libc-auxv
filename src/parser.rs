@@ -232,12 +232,12 @@ mod tests {
     #[test]
     fn test_parser_with_dereference_data() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_arg_v(b"first_arg\0")
-            .add_arg_v(b"second_arg\0")
-            .add_arg_v(b"third__arg\0")
-            .add_env_v(b"ENV1=FOO\0")
-            .add_env_v(b"ENV2=BAR\0")
-            .add_env_v(b"ENV3=FOOBAR\0")
+            .add_arg_v("first_arg\0")
+            .add_arg_v("second_arg")
+            .add_arg_v("third__arg")
+            .add_env_v("ENV1=FOO")
+            .add_env_v("ENV2=BAR")
+            .add_env_v("ENV3=FOOBAR\0")
             .add_aux_v(AuxVar::Platform("x86_64"))
             .add_aux_v(AuxVar::Uid(0xdeadbeef));
         let mut buf = vec![0; builder.total_size()];
@@ -262,12 +262,12 @@ mod tests {
     #[test]
     fn test_parser_different_user_ptr() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_arg_v(b"first_arg\0")
-            .add_arg_v(b"second_arg\0")
-            .add_arg_v(b"third__arg\0")
-            .add_env_v(b"ENV1=FOO\0")
-            .add_env_v(b"ENV2=BAR\0")
-            .add_env_v(b"ENV3=FOOBAR\0")
+            .add_arg_v("first_arg\0")
+            .add_arg_v("second_arg")
+            .add_arg_v("third__arg")
+            .add_env_v("ENV1=FOO")
+            .add_env_v("ENV2=BAR")
+            .add_env_v("ENV3=FOOBAR\0")
             .add_aux_v(AuxVar::Platform("x86_64\0"))
             .add_aux_v(AuxVar::Uid(0xdeadbeef));
         let mut buf = Vec::with_capacity(builder.total_size());
