@@ -47,19 +47,36 @@ SOFTWARE.
 //! // Minimal example that builds the initial Linux libc stack layout. It includes args, envvs,
 //! // and aux vars. It serializes them and parses the structure afterwards.
 //!
-//! use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
+//! use linux_libc_auxv::{
+//!     AuxVar, AuxVarFlags, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder,
+//! };
 //!
 //! let builder = InitialLinuxLibcStackLayoutBuilder::new()
 //!     // can contain terminating zero; not mandatory in the builder
-//!    .add_arg_v("./first_arg\0")
-//!    .add_arg_v("./second_arg")
-//!    .add_env_v("FOO=BAR\0")
-//!    .add_env_v("PATH=/bin")
-//!    .add_aux_v(AuxVar::ExecFn("./my_executable"))
-//!    .add_aux_v(AuxVar::Clktck(0x1337))
-//!    .add_aux_v(AuxVar::Random([
-//!        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-//!    ]));
+//!     .add_arg_v("./first_arg\0")
+//!     .add_arg_v("./second_arg")
+//!     .add_env_v("FOO=BAR\0")
+//!     .add_env_v("PATH=/bin")
+//!     .add_aux_v(AuxVar::Sysinfo(0x7ffd963e9000 as *const _))
+//!     .add_aux_v(AuxVar::HwCap(0x1000))
+//!     .add_aux_v(AuxVar::Clktck(100))
+//!     .add_aux_v(AuxVar::Phdr(0x5627e17a6040 as *const _))
+//!     .add_aux_v(AuxVar::Phent(56))
+//!     .add_aux_v(AuxVar::Phnum(13))
+//!     .add_aux_v(AuxVar::Base(0x7f51b886e000 as *const _))
+//!     .add_aux_v(AuxVar::Flags(AuxVarFlags::empty()))
+//!     .add_aux_v(AuxVar::Entry(0x5627e17a8850 as *const _))
+//!     .add_aux_v(AuxVar::Uid(1001))
+//!     .add_aux_v(AuxVar::EUid(1001))
+//!     .add_aux_v(AuxVar::Gid(1001))
+//!     .add_aux_v(AuxVar::EGid(1001))
+//!     .add_aux_v(AuxVar::Secure(false))
+//!     .add_aux_v(AuxVar::Random([
+//!         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+//!     ]))
+//!     .add_aux_v(AuxVar::HwCap2(0x2))
+//!     .add_aux_v(AuxVar::ExecFn("/usr/bin/foo"))
+//!     .add_aux_v(AuxVar::Platform("x86_64"));
 //! let mut buf = vec![0; builder.total_size()];
 //!
 //! // user base addr is the initial stack pointer in the user address space
@@ -92,21 +109,40 @@ SOFTWARE.
 //! // will segfault, if user_ptr != write_ptr (i.e. other address space)
 //! for aux in parsed.aux_iter() {
 //!     // currently: Only AT_RANDOM
-//!     if aux.value_payload_bytes().is_some() {
+//!     if let Some(bytes) = aux.value_payload_bytes() {
 //!         println!(
 //!             "  {:>12?} => @ {:?}: {:?}",
 //!             aux.key(),
 //!             aux.value_raw() as *const u8,
-//!             aux.value_payload_bytes().unwrap(),
+//!             bytes,
 //!         );
-//!     } else if aux.value_payload_cstr().is_some() {
+//!     } else if let Some(cstr) = aux.value_payload_cstr() {
 //!         println!(
 //!             "  {:>12?} => @ {:?}: {:?}",
 //!             aux.key(),
 //!             aux.value_raw() as *const u8,
-//!             aux.value_payload_cstr().unwrap(),
+//!             cstr,
 //!         );
-//!     } else {
+//!     } else if let Some(flags) = aux.value_flags() {
+//!         println!(
+//!             "  {:>12?} => {:?}",
+//!             aux.key(),
+//!             flags,
+//!         );
+//!     } else if let Some(boolean) = aux.value_boolean() {
+//!         println!(
+//!             "  {:>12?} => {:?}",
+//!             aux.key(),
+//!             boolean,
+//!         );
+//!     } else if let Some(ptr) = aux.value_ptr() {
+//!         println!(
+//!             "  {:>12?} => {:?}",
+//!             aux.key(),
+//!             ptr,
+//!         );
+//!     }
+//!     else {
 //!         println!("  {:>12?} => {}", aux.key(), aux.value_raw());
 //!     }
 //! }

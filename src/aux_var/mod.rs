@@ -93,7 +93,7 @@ pub enum AuxVar<'a> {
     /// `&'a [u8]`, which is hard without hacky tricks.
     Random([u8; 16]),
     /// Entry with payload for type [`AuxVarType::HwCap2`].
-    Hwcap2(usize),
+    HwCap2(usize),
     /// Entry with payload for type [`AuxVarType::ExecFn`].
     ExecFn(&'a str),
     /// Entry with payload for type [`AuxVarType::Sysinfo`].
@@ -177,7 +177,7 @@ impl<'a> AuxVar<'a> {
                 AuxVarType::HwCap => Self::HwCap(serialized.val()),
                 AuxVarType::Clktck => Self::Clktck(serialized.val()),
                 AuxVarType::Secure => Self::Secure(serialized.val() != 0),
-                AuxVarType::HwCap2 => Self::Hwcap2(serialized.val()),
+                AuxVarType::HwCap2 => Self::HwCap2(serialized.val()),
                 AuxVarType::Sysinfo => Self::Sysinfo(serialized.val() as _),
                 AuxVarType::SysinfoEhdr => Self::SysinfoEhdr(serialized.val() as _),
                 AuxVarType::L1iCacheSize => Self::L1iCacheSize(serialized.val()),
@@ -218,7 +218,7 @@ impl<'a> AuxVar<'a> {
             AuxVar::Secure(_) => AuxVarType::Secure,
             AuxVar::BasePlatform(_) => AuxVarType::BasePlatform,
             AuxVar::Random(_) => AuxVarType::Random,
-            AuxVar::Hwcap2(_) => AuxVarType::HwCap2,
+            AuxVar::HwCap2(_) => AuxVarType::HwCap2,
             AuxVar::ExecFn(_) => AuxVarType::ExecFn,
             AuxVar::Sysinfo(_) => AuxVarType::Sysinfo,
             AuxVar::SysinfoEhdr(_) => AuxVarType::SysinfoEhdr,
@@ -272,7 +272,7 @@ impl<'a> AuxVar<'a> {
             }
             AuxVar::BasePlatform(val) => val.as_ptr() as _,
             AuxVar::Random(val) => val.as_ptr() as _,
-            AuxVar::Hwcap2(val) => *val,
+            AuxVar::HwCap2(val) => *val,
             AuxVar::ExecFn(val) => val.as_ptr() as _,
             AuxVar::Sysinfo(val) => *val as _,
             AuxVar::SysinfoEhdr(val) => *val as _,
@@ -303,7 +303,7 @@ impl<'a> AuxVar<'a> {
             AuxVar::EGid(val) => Some(*val),
             AuxVar::HwCap(val) => Some(*val),
             AuxVar::Clktck(val) => Some(*val),
-            AuxVar::Hwcap2(val) => Some(*val),
+            AuxVar::HwCap2(val) => Some(*val),
             AuxVar::L1iCacheSize(val) => Some(*val),
             AuxVar::L1iCacheGeometry(val) => Some(*val),
             AuxVar::L1dCacheSize(val) => Some(*val),
