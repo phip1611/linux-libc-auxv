@@ -19,6 +19,8 @@ When I started creating this crate, I only knew about the latter. It doesn't sup
 the first one supports `no_std` but not different address spaces, I still had to create this one.
 The typical use case for me is to create the data structure for a different address space, like Linux does.
 
+Last but not least, my crate supports more/all of Linux's AT tags.
+
 ## Functionality
 ✅ build data structure for current address space \
 ✅ build data structure for **different address space** \
@@ -45,15 +47,21 @@ use linux_libc_auxv::{
 
 /// Minimal example that builds the initial Linux libc stack layout. It includes args, envvs,
 /// and aux vars. It serializes them and parses the structure afterwards.
+use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
+
+/// Minimal example that builds the initial Linux libc stack layout. It includes args, envvs,
+/// and aux vars. It serializes them and parses the structure afterwards.
 fn main() {
     let builder = InitialLinuxLibcStackLayoutBuilder::new()
         .add_arg_v(b"./first_arg\0")
         .add_arg_v(b"./second_arg\0")
         .add_env_v(b"FOO=BAR\0")
         .add_env_v(b"PATH=/bin\0")
-        .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, b"./my_executable\0"))
-        .add_aux_v(AuxVar::Value(AuxVarType::AtClktck, 1337))
-        .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtRandom, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]));
+        .add_aux_v(AuxVar::ExecFn("./my_executable"))
+        .add_aux_v(AuxVar::Clktck(0x1337))
+        .add_aux_v(AuxVar::Random([
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+        ]));
     let mut buf = vec![0; builder.total_size()];
 
     // user base addr is the initial stack pointer in the user address space
@@ -69,23 +77,39 @@ fn main() {
     for (arg_ptr, arg_val) in parsed.argv_ptr_iter().zip(parsed.argv_iter()) {
         println!("  {:?}: {}", arg_ptr, arg_val);
     }
-    println!("There are {} environment variables:", parsed.envv_ptr_iter().count());
+    println!(
+        "There are {} environment variables:",
+        parsed.envv_ptr_iter().count()
+    );
     // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
     for (env_ptr, env_val) in parsed.envv_ptr_iter().zip(parsed.envv_iter()) {
         println!("  {:?}: {}", env_ptr, env_val);
     }
 
-    println!("There are {} auxiliary vector entries/AT variables:", parsed.aux_iter().count());
+    println!(
+        "There are {} auxiliary vector entries/AT variables:",
+        parsed.aux_iter().count()
+    );
+
     // will segfault, if user_ptr != write_ptr (i.e. other address space)
     for aux in parsed.aux_iter() {
-        if unsafe { aux.data().is_some() } {
-            if aux.key() == AuxVarType::AtRandom {
-                println!("  {:>12?} => {:?}: {:?}", aux.key(), aux.val() as *const u8, unsafe { aux.data().unwrap() });
-            } else {
-                println!("  {:>12?} => {:?}: {}", aux.key(), aux.val() as *const u8, unsafe { aux.c_str().unwrap() });
-            }
+        // currently: Only AT_RANDOM
+        if aux.value_payload_bytes().is_some() {
+            println!(
+                "  {:>12?} => @ {:?}: {:?}",
+                aux.key(),
+                aux.value_raw() as *const u8,
+                aux.value_payload_bytes().unwrap(),
+            );
+        } else if aux.value_payload_cstr().is_some() {
+            println!(
+                "  {:>12?} => @ {:?}: {:?}",
+                aux.key(),
+                aux.value_raw() as *const u8,
+                aux.value_payload_cstr().unwrap(),
+            );
         } else {
-            println!("  {:>12?} => {}", aux.key(), aux.val());
+            println!("  {:>12?} => {}", aux.key(), aux.value_raw());
         }
     }
 }

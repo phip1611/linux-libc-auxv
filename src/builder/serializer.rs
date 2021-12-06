@@ -23,6 +23,7 @@ SOFTWARE.
 */
 //! Module for [`AuxvSerializer`].
 use crate::builder::InitialLinuxLibcStackLayoutBuilder;
+use crate::cstr_util::c_str_null_terminated;
 use crate::{AuxVar, AuxVarType};
 use core::mem::size_of;
 
@@ -111,15 +112,18 @@ impl<'a> AuxvSerializer<'a> {
             self.argv_key_write_ptr.cast(),
             self.to_user_ptr(self.argv_data_write_ptr),
         );
-        core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.argv_data_write_ptr, c_str.len());
-
         self.argv_key_write_ptr = self.argv_key_write_ptr.add(size_of::<u64>());
+
+        core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.argv_data_write_ptr, c_str.len());
         self.argv_data_write_ptr = self.argv_data_write_ptr.add(c_str.len());
+
+        let write_ptr_ptr = &mut self.argv_data_write_ptr as *mut _;
+        self.write_cstr_null_byte_if_not_present(c_str, write_ptr_ptr);
 
         self.arg_write_count += 1;
     }
 
-    /// Writes a NULL-ptr into the data structure.
+    /// Writes a NULL-ptr into the data structure, after all arguments were written.
     pub unsafe fn write_finish_argv(&mut self) {
         core::ptr::write(
             self.argv_key_write_ptr.cast::<*const u8>(),
@@ -138,15 +142,18 @@ impl<'a> AuxvSerializer<'a> {
             self.envv_key_write_ptr.cast(),
             self.to_user_ptr(self.envv_data_write_ptr),
         );
-        core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.envv_data_write_ptr, c_str.len());
-
         self.envv_key_write_ptr = self.envv_key_write_ptr.add(size_of::<u64>());
+
+        core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.envv_data_write_ptr, c_str.len());
         self.envv_data_write_ptr = self.envv_data_write_ptr.add(c_str.len());
+
+        let write_ptr_ptr = &mut self.envv_data_write_ptr as *mut _;
+        self.write_cstr_null_byte_if_not_present(c_str, write_ptr_ptr);
 
         self.env_write_count += 1;
     }
 
-    /// Writes a NULL-ptr into the data structure.
+    /// Writes a NULL-ptr into the data structure, after all environment variables were written.
     pub unsafe fn write_finish_envv(&mut self) {
         core::ptr::write(
             self.envv_key_write_ptr.cast::<*const u8>(),
@@ -166,40 +173,48 @@ impl<'a> AuxvSerializer<'a> {
         // increment 1/2
         self.aux_key_write_ptr = self.aux_key_write_ptr.add(size_of::<usize>());
 
+        // TODO maybe move away from key
         if !aux_var.key().value_in_data_area() {
-            // write integer value; no pointer referencing data in aux data area
-            core::ptr::write(
-                self.aux_key_write_ptr.cast::<usize>(),
-                aux_var.data().raw_value(),
-            );
+            // write integer, "external" pointer, or boolean, but no pointer referencing data in
+            // aux data area
+            core::ptr::write(self.aux_key_write_ptr.cast::<usize>(), aux_var.value_raw());
         } else {
-            // special treatment; see https://lwn.net/Articles/631631/
-            if aux_var.key() == AuxVarType::AtExecFn {
-                core::ptr::write(
-                    self.aux_key_write_ptr.cast(),
-                    self.to_user_ptr(self.filename_write_ptr),
-                );
-                core::ptr::copy_nonoverlapping(
-                    aux_var.data().referenced_data().unwrap().as_ptr(),
-                    self.filename_write_ptr,
-                    aux_var.data().referenced_data().unwrap().len(),
-                );
-                // done only once; no need to update pointer
-                // self.filename_write_ptr
+            // Pointer to the pointer of the C-string, either into aux vec data area or
+            // into filename data area
+            let data_write_ptr_ptr: *mut *mut u8;
+            let bytes;
+            let is_c_str;
+
+            // special treatment for AT_EXEC_FN; see https://lwn.net/Articles/631631/
+            if aux_var.key() == AuxVarType::ExecFn {
+                data_write_ptr_ptr = &mut self.filename_write_ptr as *mut _;
+                bytes = aux_var.value_payload_cstr().unwrap().as_bytes();
+                is_c_str = false;
             } else {
-                core::ptr::write(
-                    self.aux_key_write_ptr.cast(),
-                    self.to_user_ptr(self.aux_data_write_ptr),
-                );
-                core::ptr::copy_nonoverlapping(
-                    aux_var.data().referenced_data().unwrap().as_ptr(),
-                    self.aux_data_write_ptr,
-                    aux_var.data().referenced_data().unwrap().len(),
-                );
-                // update pointer for next iteration
-                self.aux_data_write_ptr = self
-                    .aux_data_write_ptr
-                    .add(aux_var.data().referenced_data().unwrap().len());
+                data_write_ptr_ptr = &mut self.aux_data_write_ptr as *mut _;
+                if let Some(cstr) = aux_var.value_payload_cstr() {
+                    bytes = cstr.as_bytes();
+                    is_c_str = true;
+                } else {
+                    bytes = aux_var.value_payload_bytes().unwrap();
+                    is_c_str = false;
+                }
+            }
+
+            // pointer into aux data area
+            core::ptr::write(
+                self.aux_key_write_ptr.cast(),
+                self.to_user_ptr(*data_write_ptr_ptr),
+            );
+
+            // copy payload into aux data area
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), *data_write_ptr_ptr, bytes.len());
+            // update pointer for next iteration
+            *data_write_ptr_ptr = (*data_write_ptr_ptr).add(bytes.len());
+
+            // will update data_write_ptr_ptr, if null byte is written
+            if is_c_str {
+                self.write_cstr_null_byte_if_not_present(bytes, data_write_ptr_ptr);
             }
         }
 
@@ -212,6 +227,22 @@ impl<'a> AuxvSerializer<'a> {
     /// Writes a final NULL-ptr into the data structure.
     pub unsafe fn write_finish(&mut self) {
         core::ptr::write(self.final_null_ptr.cast::<*const u8>(), core::ptr::null());
+    }
+
+    /// Helper function for all serializations of C-strings. For convenience reasons they don't
+    /// have to be null-terminated in the builder during runtime. This method checks if the
+    /// aux var needs a null termination and if so, it writes the null byte. It updates the pointer
+    /// to the next byte, if a byte was written. This function will never produce two null bytes,
+    /// i.e., never adds one, if one is already present.
+    unsafe fn write_cstr_null_byte_if_not_present(
+        &self,
+        bytes: &[u8],
+        write_ptr_ptr: *mut *mut u8,
+    ) {
+        if !c_str_null_terminated(bytes) {
+            core::ptr::write(*write_ptr_ptr, 0);
+            *write_ptr_ptr = (*write_ptr_ptr).add(1);
+        }
     }
 
     /// Calculates the offset of the write pointer from the beginning of the data structure.
@@ -238,8 +269,8 @@ mod tests {
     #[test]
     fn test_byte_writer_auxv() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_aux_v(AuxVar::new_at_clktck(0x1337))
-            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"));
+            .add_aux_v(AuxVar::Clktck(0x1337))
+            .add_aux_v(AuxVar::Platform("x86_64"));
         let mut buf = vec![0_u8; builder.total_size()];
         let ptr = buf.as_ptr();
         let mut writer = AuxvSerializer::new(&builder, buf.as_mut_ptr(), ptr as u64);
@@ -252,11 +283,12 @@ mod tests {
                 .aux_v
                 .iter()
                 .filter(|x| x.key().value_in_data_area())
-                .filter(|x| x.key() != AuxVarType::AtExecFn)
+                .filter(|x| x.key() != AuxVarType::ExecFn)
             {
                 let dst_ptr = writer.aux_data_write_ptr;
                 writer.write_aux_entry(aux);
-                bytes_written += aux.data().referenced_data().unwrap().len();
+                bytes_written += aux.data_area_serialize_byte_count();
+
                 assert_eq!(
                     *writer
                         .aux_key_write_ptr
@@ -305,8 +337,8 @@ mod tests {
             .add_env_v(b"ENV1=FOO1\0")
             .add_env_v(b"ENV2=FOO2\0")
             .add_env_v(b"ENV3=FOO3\0")
-            .add_aux_v(AuxVar::new_at_clktck(0x1337))
-            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"));
+            .add_aux_v(AuxVar::Clktck(0x1337))
+            .add_aux_v(AuxVar::Platform("x86_64"));
         let mut buf = vec![0_u8; builder.total_size()];
         let ptr = buf.as_ptr();
         let mut writer = AuxvSerializer::new(&builder, buf.as_mut_ptr(), ptr as u64);
@@ -399,6 +431,7 @@ mod tests {
             let mut aux_data_bytes_written = 0;
 
             for aux in &builder.aux_v {
+                dbg!("foo");
                 writer.write_aux_entry(aux);
                 assert_eq!(
                     *writer
@@ -414,23 +447,23 @@ mod tests {
                             .aux_key_write_ptr
                             .sub(size_of::<AuxVarSerialized>() / 2)
                             .cast::<usize>(),
-                        aux.data().raw_value(),
+                        aux.value_raw(),
                         "must write the correct value"
                     );
                 } else {
                     // special treatment for this key
-                    if aux.key() == AuxVarType::AtExecFn {
+                    if aux.key() == AuxVarType::ExecFn {
                         let slice = core::slice::from_raw_parts(
                             writer.filename_write_ptr,
-                            aux.data().referenced_data().unwrap().len(),
+                            aux.value_payload_cstr().unwrap().len(),
                         );
                         assert_eq!(
-                            aux.data().referenced_data().unwrap(),
+                            aux.value_payload_cstr().unwrap().as_bytes(),
                             slice,
                             "must write the correct filename into the right location"
                         );
                     } else {
-                        aux_data_bytes_written += aux.data().referenced_data().unwrap().len();
+                        aux_data_bytes_written += aux.data_area_serialize_byte_count();
                         assert_eq!(
                             initial_aux_data_write_ptr.add(aux_data_bytes_written),
                             writer.aux_data_write_ptr,
@@ -450,7 +483,7 @@ mod tests {
             // check for AtNull at end
             assert_eq!(
                 *writer.aux_key_write_ptr.sub(size_of::<AuxVarSerialized>()) as usize,
-                AuxVarType::AtNull.val(),
+                AuxVarType::Null.val(),
                 "last AT var must be AtNull"
             );
             assert_eq!(
@@ -460,9 +493,9 @@ mod tests {
             );
 
             // do some final checks
-            assert!(writer.final_null_ptr > writer.filename_write_ptr);
+            assert_eq!(writer.final_null_ptr, writer.filename_write_ptr);
             // filename ptr not updated; this is fine
-            assert_eq!(writer.filename_write_ptr, writer.envv_data_write_ptr);
+            assert!(writer.filename_write_ptr > writer.envv_data_write_ptr);
             assert!(writer.envv_data_write_ptr > writer.argv_data_write_ptr);
             assert!(writer.argv_data_write_ptr > writer.aux_data_write_ptr);
 

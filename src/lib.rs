@@ -47,18 +47,18 @@ SOFTWARE.
 //! // Minimal example that builds the initial Linux libc stack layout. It includes args, envvs,
 //! // and aux vars. It serializes them and parses the structure afterwards.
 //!
-//! use linux_libc_auxv::{
-//!     AuxVar, AuxVarType, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder,
-//! };
+//! use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
 //!
 //! let builder = InitialLinuxLibcStackLayoutBuilder::new()
-//!     .add_arg_v(b"./first_arg\0")
-//!     .add_arg_v(b"./second_arg\0")
-//!     .add_env_v(b"FOO=BAR\0")
-//!     .add_env_v(b"PATH=/bin\0")
-//!     .add_aux_v(AuxVarBuilder::ReferencedData(AuxVarType::AtExecFn, b"./my_executable\0"))
-//!     .add_aux_v(AuxVarBuilder::Value(AuxVarType::AtClktck, 1337))
-//!     .add_aux_v(AuxVarBuilder::ReferencedData(AuxVarType::AtRandom, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]));
+//!    .add_arg_v(b"./first_arg\0")
+//!    .add_arg_v(b"./second_arg\0")
+//!    .add_env_v(b"FOO=BAR\0")
+//!    .add_env_v(b"PATH=/bin\0")
+//!    .add_aux_v(AuxVar::ExecFn("./my_executable"))
+//!    .add_aux_v(AuxVar::Clktck(0x1337))
+//!    .add_aux_v(AuxVar::Random([
+//!        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+//!    ]));
 //! let mut buf = vec![0; builder.total_size()];
 //!
 //! // user base addr is the initial stack pointer in the user address space
@@ -74,23 +74,39 @@ SOFTWARE.
 //! for (arg_ptr, arg_val) in parsed.argv_ptr_iter().zip(parsed.argv_iter()) {
 //!     println!("  {:?}: {}", arg_ptr, arg_val);
 //! }
-//! println!("There are {} environment variables:", parsed.envv_ptr_iter().count());
+//! println!(
+//!     "There are {} environment variables:",
+//!     parsed.envv_ptr_iter().count()
+//! );
 //! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
 //! for (env_ptr, env_val) in parsed.envv_ptr_iter().zip(parsed.envv_iter()) {
 //!     println!("  {:?}: {}", env_ptr, env_val);
 //! }
 //!
-//! println!("There are {} auxiliary vector entries/AT variables:", parsed.aux_iter().count());
+//! println!(
+//!     "There are {} auxiliary vector entries/AT variables:",
+//!     parsed.aux_iter().count()
+//! );
+//!
 //! // will segfault, if user_ptr != write_ptr (i.e. other address space)
 //! for aux in parsed.aux_iter() {
-//!     if unsafe { aux.data().is_some() } {
-//!         if aux.key() == AuxVarType::AtRandom {
-//!             println!("  {:>12?} => {:?}: {:?}", aux.key(), aux.val() as *const u8, unsafe { aux.data().unwrap() });
-//!         } else {
-//!             println!("  {:>12?} => {:?}: {}", aux.key(), aux.val() as *const u8, unsafe { aux.c_str().unwrap() });
-//!         }
+//!     // currently: Only AT_RANDOM
+//!     if aux.value_payload_bytes().is_some() {
+//!         println!(
+//!             "  {:>12?} => @ {:?}: {:?}",
+//!             aux.key(),
+//!             aux.value_raw() as *const u8,
+//!             aux.value_payload_bytes().unwrap(),
+//!         );
+//!     } else if aux.value_payload_cstr().is_some() {
+//!         println!(
+//!             "  {:>12?} => @ {:?}: {:?}",
+//!             aux.key(),
+//!             aux.value_raw() as *const u8,
+//!             aux.value_payload_cstr().unwrap(),
+//!         );
 //!     } else {
-//!         println!("  {:>12?} => {}", aux.key(), aux.val());
+//!         println!("  {:>12?} => {}", aux.key(), aux.value_raw());
 //!     }
 //! }
 //! ```
@@ -149,17 +165,17 @@ SOFTWARE.
 )]
 #![deny(missing_debug_implementations)]
 #![deny(rustdoc::all)]
-#![no_std]
+// #![no_std]
 
 mod aux_var;
 mod builder;
+mod cstr_util;
 mod parser;
 
 pub use aux_var::*;
 pub use builder::*;
 pub use parser::*;
 
-#[macro_use]
 extern crate alloc;
 
 #[cfg_attr(test, macro_use)]

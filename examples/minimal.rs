@@ -21,9 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-use linux_libc_auxv::{
-    AuxVar, AuxVarType, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder,
-};
+use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
 
 /// Minimal example that builds the initial Linux libc stack layout. It includes args, envvs,
 /// and aux vars. It serializes them and parses the structure afterwards.
@@ -33,9 +31,9 @@ fn main() {
         .add_arg_v(b"./second_arg\0")
         .add_env_v(b"FOO=BAR\0")
         .add_env_v(b"PATH=/bin\0")
-        .add_aux_v(AuxVar::new_at_exec_fn(b"./my_executable\0"))
-        .add_aux_v(AuxVar::new_at_clktck(0x1337))
-        .add_aux_v(AuxVar::new_at_random(&[
+        .add_aux_v(AuxVar::ExecFn("./my_executable"))
+        .add_aux_v(AuxVar::Clktck(0x1337))
+        .add_aux_v(AuxVar::Random([
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
         ]));
     let mut buf = vec![0; builder.total_size()];
@@ -69,24 +67,23 @@ fn main() {
 
     // will segfault, if user_ptr != write_ptr (i.e. other address space)
     for aux in parsed.aux_iter() {
-        if let Some(data) = aux.data().referenced_data() {
-            if aux.key() == AuxVarType::AtRandom {
-                println!(
-                    "  {:>12?} => {:?}: {:?}",
-                    aux.key(),
-                    aux.data().raw_value() as *const u8,
-                    data
-                );
-            } else {
-                println!(
-                    "  {:>12?} => {:?}: {}",
-                    aux.key(),
-                    aux.data().raw_value() as *const u8,
-                    unsafe { aux.data().cstr().unwrap() }
-                );
-            }
+        // currently: Only AT_RANDOM
+        if aux.value_payload_bytes().is_some() {
+            println!(
+                "  {:>12?} => @ {:?}: {:?}",
+                aux.key(),
+                aux.value_raw() as *const u8,
+                aux.value_payload_bytes().unwrap(),
+            );
+        } else if aux.value_payload_cstr().is_some() {
+            println!(
+                "  {:>12?} => @ {:?}: {:?}",
+                aux.key(),
+                aux.value_raw() as *const u8,
+                aux.value_payload_cstr().unwrap(),
+            );
         } else {
-            println!("  {:>12?} => {}", aux.key(), aux.data().value().unwrap());
+            println!("  {:>12?} => {}", aux.key(), aux.value_raw());
         }
     }
 }

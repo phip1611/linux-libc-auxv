@@ -27,3 +27,4 @@ exclude = [
 
 [dependencies]
 enum-iterator = "0.7"
+bitflags = "1.3"

@@ -21,6 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+use crate::cstr_util::c_str_len_ptr;
 use crate::{AuxVar, AuxVarSerialized, AuxVarType};
 use core::fmt::Debug;
 use core::marker::PhantomData;
@@ -171,25 +172,10 @@ impl<'a> Iterator for CstrIter<'a> {
         self.arr_iter.next().map(|c_str_ptr| {
             // + null byte
             let c_str_bytes =
-                unsafe { core::slice::from_raw_parts(c_str_ptr, c_str_len(c_str_ptr) + 1) };
+                unsafe { core::slice::from_raw_parts(c_str_ptr, c_str_len_ptr(c_str_ptr) + 1) };
             unsafe { core::str::from_utf8_unchecked(c_str_bytes) }
         })
     }
-}
-
-/// Returns the length of a C-string without the terminating null byte.
-pub(crate) fn c_str_len(mut ptr: *const u8) -> usize {
-    let mut i = 0;
-    while unsafe { *ptr != 0 } {
-        ptr = unsafe { ptr.add(1) };
-        i += 1;
-
-        // in my use case there will be no strings that are longer than this
-        if i >= 100000 {
-            panic!("memory error? not null terminated C-string?");
-        }
-    }
-    i
 }
 
 /// Iterator over all entries in the auxiliary vector.
@@ -218,7 +204,7 @@ impl<'a> Iterator for AuxVecIter<'a> {
             None
         } else {
             let aux_var_ser = unsafe { self.ptr.as_ref().unwrap() };
-            if aux_var_ser.key() == AuxVarType::AtNull {
+            if aux_var_ser.key() == AuxVarType::Null {
                 if aux_var_ser.val() != 0 {
                     panic!(
                         "val of end key is not null but {}! Probably read wrong memory!",
@@ -230,7 +216,7 @@ impl<'a> Iterator for AuxVecIter<'a> {
 
             self.ptr = unsafe { self.ptr.add(1) };
 
-            Some(AuxVar::from(aux_var_ser))
+            unsafe { Some(AuxVar::from_serialized(aux_var_ser)) }
         }
     }
 }
@@ -238,7 +224,7 @@ impl<'a> Iterator for AuxVecIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AuxVar, AuxVarType, InitialLinuxLibcStackLayoutBuilder};
+    use crate::{AuxVar, InitialLinuxLibcStackLayoutBuilder};
     use std::vec::Vec;
 
     // This test is not optimal, because its some kind of "self fulfilling prophecy".
@@ -252,8 +238,8 @@ mod tests {
             .add_env_v(b"ENV1=FOO\0")
             .add_env_v(b"ENV2=BAR\0")
             .add_env_v(b"ENV3=FOOBAR\0")
-            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"))
-            .add_aux_v(AuxVar::new_at_uid(0xdeadbeef));
+            .add_aux_v(AuxVar::Platform("x86_64"))
+            .add_aux_v(AuxVar::Uid(0xdeadbeef));
         let mut buf = vec![0; builder.total_size()];
 
         unsafe {
@@ -282,18 +268,13 @@ mod tests {
             .add_env_v(b"ENV1=FOO\0")
             .add_env_v(b"ENV2=BAR\0")
             .add_env_v(b"ENV3=FOOBAR\0")
-            .add_aux_v(AuxVar::new_at_platform(b"x86_64\0"))
-            .add_aux_v(AuxVar::new_at_uid(0xdeadbeef));
+            .add_aux_v(AuxVar::Platform("x86_64\0"))
+            .add_aux_v(AuxVar::Uid(0xdeadbeef));
         let mut buf = Vec::with_capacity(builder.total_size());
         unsafe {
             buf.set_len(buf.capacity());
             buf.fill(0);
         }
-
-        println!("buf_begin_ptr = {:?}", buf.as_ptr());
-        println!("buf_end_ptr   = {:?}", unsafe {
-            buf.as_ptr().add(builder.total_size())
-        });
 
         unsafe {
             // this only works if the data is not dereferenced
@@ -309,19 +290,5 @@ mod tests {
 
         // debug already resolves memory addresses => in this test => memory errors
         // dbg!(parsed.aux_iter().collect::<Vec<_>>());
-    }
-
-    #[test]
-    fn test_c_str_len() {
-        assert_eq!(c_str_len("hallo\0".as_ptr()), 5);
-        assert_eq!(c_str_len("\0".as_ptr()), 0);
-        assert_eq!(c_str_len("hallo welt\0".as_ptr()), 10);
-    }
-
-    #[should_panic]
-    #[test]
-    fn test_c_str_len_panic() {
-        // expect panic because there is no terminating null
-        let _ = c_str_len("hallo".repeat(100000).as_ptr());
     }
 }

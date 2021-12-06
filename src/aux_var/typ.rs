@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 use enum_iterator::IntoEnumIterator;
+use std::cmp::Ordering;
 
 /// All types of auxiliary variables that Linux supports for the initial stack.
 /// Also called "AT"-variables in Linux source code.
@@ -33,78 +34,81 @@ use enum_iterator::IntoEnumIterator;
 /// * <https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/auxvec.h>
 /// * <https://elixir.bootlin.com/linux/latest/source/fs/binfmt_elf.c#L259>
 /// * <https://man7.org/linux/man-pages/man3/getauxval.3.html>
-#[derive(Copy, Clone, Debug, PartialOrd, PartialEq, Ord, Eq, IntoEnumIterator)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, IntoEnumIterator)]
 #[repr(usize)]
 pub enum AuxVarType {
     // ### architecture neutral
     /// end of vector
-    AtNull = 0,
+    Null = 0,
     /// entry should be ignored
-    AtIgnore = 1,
+    Ignore = 1,
     /// file descriptor of program
-    AtExecFd = 2,
+    ExecFd = 2,
     /// program headers for program
-    AtPhdr = 3,
+    Phdr = 3,
     /// size of program header entry
-    AtPhent = 4,
+    Phent = 4,
     /// number of program headers
-    AtPhnum = 5,
+    Phnum = 5,
     /// system page size
-    AtPagesz = 6,
+    Pagesz = 6,
     /// The base address of the program interpreter (usually, the
     /// dynamic linker).
-    AtBase = 7,
-    /// flags
-    AtFlags = 8,
+    Base = 7,
+    /// Flags that apply on the whole auxiliary vector. See [`crate::AuxVarFlags`].
+    Flags = 8,
     /// entry point of program
-    AtEntry = 9,
+    Entry = 9,
     /// program is not ELF
-    AtNotelf = 10,
+    NotElf = 10,
     /// real uid
-    AtUid = 11,
+    Uid = 11,
     /// effective uid
-    AtEuid = 12,
+    EUid = 12,
     /// real gid
-    AtGid = 13,
+    Gid = 13,
     /// effective gid
-    AtEgid = 14,
+    EGid = 14,
     /// string identifying CPU for optimizations
-    AtPlatform = 15,
+    Platform = 15,
     /// Arch dependent hints at CPU capabilities.
     /// On x86_64 these are the CPUID features.
-    AtHwcap = 16,
+    HwCap = 16,
     /// frequency at which times() increments
-    AtClktck = 17,
+    Clktck = 17,
     /// secure mode boolean
-    AtSecure = 23,
+    Secure = 23,
     /// string identifying real platform, may differ from AtPlatform.
-    AtBasePlatform = 24,
+    BasePlatform = 24,
     /// address of 16 random bytes
-    AtRandom = 25,
+    Random = 25,
     /// extension of AtHwcap
-    AtHwcap2 = 26,
+    HwCap2 = 26,
     /// filename of program, for example "./my_executable\0"
-    AtExecFn = 31,
+    ExecFn = 31,
 
     // ### according to Linux code: from here: x86_64
     /// The entry point to the system call function in the vDSO.
     /// Not present/needed on all architectures (e.g., absent on
     /// x86-64).
-    AtSysinfo = 32,
+    Sysinfo = 32,
     /// The address of a page containing the virtual Dynamic
     /// Shared Object (vDSO) that the kernel creates in order to
     /// provide fast implementations of certain system calls.
-    AtSysinfoEhdr = 33,
+    SysinfoEhdr = 33,
 
     // ### according to Linux code: from here: PowerPC
-    AtL1iCachesize = 40,
-    AtL1iCachegeometry = 41,
-    AtL1dCachesize = 42,
-    AtL1dCachegeometry = 43,
-    AtL2Cachesize = 44,
-    AtL2Cachegeometry = 45,
-    AtL3Cachesize = 46,
-    AtL3Cachegeometry = 47,
+    L1iCacheSize = 40,
+    L1iCacheGeometry = 41,
+    L1dCacheSize = 42,
+    L1dCacheGeometry = 43,
+    L2CacheSize = 44,
+    L2CacheGeometry = 45,
+    L3CacheSize = 46,
+    L3CacheGeometry = 47,
+
+    /// Minimal stack size for signal delivery.
+    MinSigStkSz = 51,
 }
 
 impl AuxVarType {
@@ -114,47 +118,49 @@ impl AuxVarType {
 
     /// If this is true, the value of the key should be interpreted as pointer into
     /// the aux vector data area. Otherwise, the value of the key is an immediate value/integer.
+    // TODO move to AuxVar?!
     pub const fn value_in_data_area(self) -> bool {
         // this info can be found here:
         // https://elixir.bootlin.com/linux/latest/source/fs/binfmt_elf.c#L259
         match self {
-            AuxVarType::AtNull => false,
-            AuxVarType::AtIgnore => false,
-            AuxVarType::AtExecFd => false,
-            AuxVarType::AtPhdr => false,
-            AuxVarType::AtPhent => false,
-            AuxVarType::AtPhnum => false,
-            AuxVarType::AtPagesz => false,
-            AuxVarType::AtBase => false,
-            AuxVarType::AtFlags => false,
-            AuxVarType::AtEntry => false,
-            AuxVarType::AtNotelf => false,
-            AuxVarType::AtUid => false,
-            AuxVarType::AtEuid => false,
-            AuxVarType::AtGid => false,
-            AuxVarType::AtEgid => false,
+            AuxVarType::Null => false,
+            AuxVarType::Ignore => false,
+            AuxVarType::ExecFd => false,
+            AuxVarType::Phdr => false,
+            AuxVarType::Phent => false,
+            AuxVarType::Phnum => false,
+            AuxVarType::Pagesz => false,
+            AuxVarType::Base => false,
+            AuxVarType::Flags => false,
+            AuxVarType::Entry => false,
+            AuxVarType::NotElf => false,
+            AuxVarType::Uid => false,
+            AuxVarType::EUid => false,
+            AuxVarType::Gid => false,
+            AuxVarType::EGid => false,
             // references C-str
-            AuxVarType::AtPlatform => true,
-            AuxVarType::AtHwcap => false,
-            AuxVarType::AtClktck => false,
-            AuxVarType::AtSecure => false,
+            AuxVarType::Platform => true,
+            AuxVarType::HwCap => false,
+            AuxVarType::Clktck => false,
+            AuxVarType::Secure => false,
             // references C-str
-            AuxVarType::AtBasePlatform => true,
+            AuxVarType::BasePlatform => true,
             // references random bytes
-            AuxVarType::AtRandom => true,
-            AuxVarType::AtHwcap2 => false,
+            AuxVarType::Random => true,
+            AuxVarType::HwCap2 => false,
             // references C-str
-            AuxVarType::AtExecFn => true,
-            AuxVarType::AtSysinfoEhdr => false,
-            AuxVarType::AtSysinfo => false,
-            AuxVarType::AtL1iCachesize => false,
-            AuxVarType::AtL1iCachegeometry => false,
-            AuxVarType::AtL1dCachesize => false,
-            AuxVarType::AtL1dCachegeometry => false,
-            AuxVarType::AtL2Cachesize => false,
-            AuxVarType::AtL2Cachegeometry => false,
-            AuxVarType::AtL3Cachesize => false,
-            AuxVarType::AtL3Cachegeometry => false,
+            AuxVarType::ExecFn => true,
+            AuxVarType::SysinfoEhdr => false,
+            AuxVarType::Sysinfo => false,
+            AuxVarType::L1iCacheSize => false,
+            AuxVarType::L1iCacheGeometry => false,
+            AuxVarType::L1dCacheSize => false,
+            AuxVarType::L1dCacheGeometry => false,
+            AuxVarType::L2CacheSize => false,
+            AuxVarType::L2CacheGeometry => false,
+            AuxVarType::L3CacheSize => false,
+            AuxVarType::L3CacheGeometry => false,
+            AuxVarType::MinSigStkSz => false,
         }
     }
 
@@ -162,7 +168,7 @@ impl AuxVarType {
     /// represent a null-terminated C-string.
     pub fn value_is_cstr(self) -> bool {
         self.value_in_data_area()
-            && [Self::AtPlatform, Self::AtBasePlatform, Self::AtExecFn].contains(&self)
+            && [Self::Platform, Self::BasePlatform, Self::ExecFn].contains(&self)
     }
 
     /// The payload of some [`AuxVarType`] is stored in the aux var data area. Some of these
@@ -170,7 +176,7 @@ impl AuxVarType {
     /// is a fixed size.
     pub const fn data_area_val_size_hint(self) -> Option<usize> {
         match self {
-            AuxVarType::AtRandom => Some(16),
+            AuxVarType::Random => Some(16),
             _ => None,
         }
     }
@@ -184,5 +190,40 @@ impl From<usize> for AuxVarType {
             }
         }
         panic!("invalid variant {}", val);
+    }
+}
+
+impl PartialOrd for AuxVarType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if matches!(self, Self::Null) && !matches!(other, Self::Null) {
+            Some(Ordering::Greater)
+        } else {
+            self.val().partial_cmp(&other.val())
+        }
+    }
+}
+
+impl Ord for AuxVarType {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// Tests that the ATNull entry always comes last in an ordered collection. This enables
+    /// us to easily write all AT-VARs at once but keep the terminating null entry at the end.
+    #[test]
+    fn test_aux_var_key_order() {
+        let mut set = BTreeSet::new();
+        set.insert(AuxVarType::ExecFn);
+        set.insert(AuxVarType::Platform);
+        set.insert(AuxVarType::Null);
+        set.insert(AuxVarType::Clktck);
+        set.insert(AuxVarType::ExecFn);
+        assert_eq!(set.into_iter().last().unwrap(), AuxVarType::Null);
     }
 }
