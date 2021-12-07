@@ -61,7 +61,7 @@ impl<'a> InitialLinuxLibcStackLayout<'a> {
         self.envv_ptr_iter().count()
     }
 
-    /// Returns the pointer to the begin of argv.
+    /// Returns the pointer to the begin of argv array.
     fn get_argv_ptr(&self) -> *const *const u8 {
         // + 1: skip argc
         let ptr = unsafe { self.bytes.as_ptr().cast::<u64>().add(1) };
@@ -69,21 +69,27 @@ impl<'a> InitialLinuxLibcStackLayout<'a> {
         ptr as *const *const u8
     }
 
-    /// Iterates over the C-string arguments.
-    /// See [`CstrIter`].
-    pub fn argv_iter(&self) -> CstrIter {
+    /// Iterates over the C-string arguments. See [`CstrIter`].
+    /// This is unsafe, because it will result in segfaults/page faults or invalid memory
+    /// being read, if the pointers are not valid in the address space of the caller.
+    ///
+    /// # Safety
+    /// This function produces UB (page fault, seg fault, read invalid memory), if the referenced
+    /// pointers are not valid inside the address space of the caller.
+    pub unsafe fn argv_iter(&self) -> CstrIter {
         CstrIter::new(self.get_argv_ptr())
     }
 
-    /// Iterates only over the pointers of the C-string arguments.
-    /// See [`NullTerminatedArrIter`].
+    /// Iterates only over the pointers of the C-string arguments. See [`NullTerminatedArrIter`].
+    /// This is always memory-safe even if the pointers are created for another address space,
+    /// because no pointers are dereference by this iterator.
     pub fn argv_ptr_iter(&self) -> NullTerminatedArrIter {
         NullTerminatedArrIter {
             ptr: self.get_argv_ptr(),
         }
     }
 
-    /// Returns the pointer to the beginning of environment variables.
+    /// Returns the pointer to the beginning of the envp array.
     fn get_envv_ptr(&self) -> *const *const u8 {
         unsafe {
             self.get_argv_ptr()
@@ -93,24 +99,42 @@ impl<'a> InitialLinuxLibcStackLayout<'a> {
         }
     }
 
-    /// Iterates over all environment variables.
-    /// See [`CstrIter`].
-    pub fn envv_iter(&self) -> CstrIter {
+    /// Iterates over all environment variables. See [`CstrIter`].
+    /// This is unsafe, because it will result in segfaults/page faults or invalid memory
+    /// being read, if the pointers are not valid in the address space of the caller.
+    ///
+    /// # Safety
+    /// This function produces UB (page fault, seg fault, read invalid memory), if the referenced
+    /// pointers are not valid inside the address space of the caller.
+    pub unsafe fn envv_iter(&self) -> CstrIter {
         CstrIter::new(self.get_envv_ptr())
     }
 
-    /// Iterates only over the pointers to the environment variables.
-    /// See [`NullTerminatedArrIter`].
+    /// Iterates only over the pointers to the environment variables. See [`NullTerminatedArrIter`].
+    /// This is always memory-safe even if the pointers are created for another address space,
+    /// because no pointers are dereference by this iterator.
     pub fn envv_ptr_iter(&self) -> NullTerminatedArrIter {
         NullTerminatedArrIter {
             ptr: self.get_envv_ptr(),
         }
     }
 
-    /// Iterates over all entries in the auxiliary vector.
-    /// See [`AuxVecIter`].
-    pub fn aux_iter(&self) -> AuxVecIter {
-        AuxVecIter::new(self.get_auxv_ptr())
+    /// Iterates over all entries in the auxiliary vector. See [`AuxVarIter`].
+    /// This is unsafe, because it will result in segfaults/page faults or invalid memory
+    /// being read, if the pointers are not valid in the address space of the caller.
+    ///
+    /// # Safety
+    /// This function produces UB (page fault, seg fault, read invalid memory), if the referenced
+    /// pointers are not valid inside the address space of the caller.
+    pub unsafe fn aux_var_iter(&self) -> AuxVarIter {
+        AuxVarIter::new(self.aux_serialized_iter())
+    }
+
+    /// Iterates over all entries in the auxiliary vector. See [`AuxVarSerializedIter`].
+    /// This is always memory-safe even if the pointers are created for another address space,
+    /// because no pointers are dereference by this iterator.
+    pub fn aux_serialized_iter(&self) -> AuxVarSerializedIter {
+        AuxVarSerializedIter::new(self.get_auxv_ptr())
     }
 
     /// Returns the pointer to the beginning of aux variables.
@@ -157,7 +181,7 @@ pub struct CstrIter<'a> {
 }
 
 impl<'a> CstrIter<'a> {
-    fn new(ptr: *const *const u8) -> Self {
+    unsafe fn new(ptr: *const *const u8) -> Self {
         Self {
             arr_iter: NullTerminatedArrIter { ptr },
             _marker: PhantomData::default(),
@@ -178,15 +202,17 @@ impl<'a> Iterator for CstrIter<'a> {
     }
 }
 
-/// Iterator over all entries in the auxiliary vector.
+/// Iterator over all serialized entries in the auxiliary vector.
+/// This is memory-safe, even if the pointers are for another address space, because
+/// no pointers are dereferenced.
 #[derive(Debug)]
-pub struct AuxVecIter<'a> {
+pub struct AuxVarSerializedIter<'a> {
     ptr: *const AuxVarSerialized<'a>,
     done: bool,
     _marker: PhantomData<&'a ()>,
 }
 
-impl<'a> AuxVecIter<'a> {
+impl<'a> AuxVarSerializedIter<'a> {
     fn new(ptr: *const AuxVarSerialized<'a>) -> Self {
         Self {
             ptr,
@@ -196,8 +222,8 @@ impl<'a> AuxVecIter<'a> {
     }
 }
 
-impl<'a> Iterator for AuxVecIter<'a> {
-    type Item = AuxVar<'a>;
+impl<'a> Iterator for AuxVarSerializedIter<'a> {
+    type Item = AuxVarSerialized<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -216,7 +242,33 @@ impl<'a> Iterator for AuxVecIter<'a> {
 
             self.ptr = unsafe { self.ptr.add(1) };
 
-            unsafe { Some(AuxVar::from_serialized(aux_var_ser)) }
+            Some(*aux_var_ser)
+        }
+    }
+}
+
+/// Iterator over all serialized entries in the auxiliary vector.
+/// This is a high-level version of [`AuxVarSerializedIter`] but unsafe,
+/// if the pointers are not valid in the address space of the caller.
+#[derive(Debug)]
+pub struct AuxVarIter<'a> {
+    serialized_iter: AuxVarSerializedIter<'a>,
+}
+
+impl<'a> AuxVarIter<'a> {
+    const fn new(serialized_iter: AuxVarSerializedIter<'a>) -> Self {
+        Self { serialized_iter }
+    }
+}
+
+impl<'a> Iterator for AuxVarIter<'a> {
+    type Item = AuxVar<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unsafe {
+            self.serialized_iter
+                .next()
+                .map(|ref x| AuxVar::from_serialized(x))
         }
     }
 }
@@ -251,10 +303,14 @@ mod tests {
         let parsed = InitialLinuxLibcStackLayout::from(buf.as_slice());
         dbg!(parsed.argc());
         dbg!(parsed.argv_ptr_iter().collect::<Vec<_>>());
-        dbg!(parsed.argv_iter().collect::<Vec<_>>());
+        unsafe {
+            dbg!(parsed.argv_iter().collect::<Vec<_>>());
+        }
         dbg!(parsed.envv_ptr_iter().collect::<Vec<_>>());
-        dbg!(parsed.envv_iter().collect::<Vec<_>>());
-        dbg!(parsed.aux_iter().collect::<Vec<_>>());
+        unsafe {
+            dbg!(parsed.envv_iter().collect::<Vec<_>>());
+        }
+        dbg!(parsed.aux_serialized_iter().collect::<Vec<_>>());
     }
 
     /// Test similar to the one above, but uses "0x1000" as user address. This

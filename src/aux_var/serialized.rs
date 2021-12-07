@@ -6,7 +6,8 @@ use core::marker::PhantomData;
 /// `(usize, usize)`-pair in memory. The lifetime is bound to the one of the buffer,
 /// where this structure is parsed from.
 #[repr(C, packed)]
-pub(crate) struct AuxVarSerialized<'a> {
+#[derive(Clone, Copy)]
+pub struct AuxVarSerialized<'a> {
     key: AuxVarType,
     val: usize,
     // ZST. Required to get the right life time, when this is transformed to a [`crate::AuxVar`].
