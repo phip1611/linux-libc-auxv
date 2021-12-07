@@ -7,7 +7,7 @@ in its `_start`-symbol ("crt0") and passes the right pointers as arguments to `m
 crate helps to construct and parse this data structure in `no_std` environments and for different
 address spaces.
 """
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = [
     "Philipp Schuster <phip1611@gmail.com>"
@@ -27,3 +27,4 @@ exclude = [
 
 [dependencies]
 enum-iterator = "0.7"
+bitflags = "1.3"

@@ -15,6 +15,7 @@ cargo clippy --all-targets
 # test 32-bit build (because AT-values are usize)
 rustup target add i686-unknown-linux-musl
 cargo build --target i686-unknown-linux-musl
+cargo test --target i686-unknown-linux-musl
 
 # test no_std
 rustup target add thumbv7em-none-eabihf

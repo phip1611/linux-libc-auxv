@@ -22,13 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 //! Module for [`InitialLinuxLibcStackLayoutBuilder`].
-mod aux_var;
 mod serializer;
 
-pub use aux_var::*;
 use serializer::*;
 
-use crate::{AuxVarSerialized, AuxVarType};
+use crate::cstr_util::{cstr_contains_at_most_terminating_null_byte, cstr_len_with_nullbyte};
+use crate::{AuxVar, AuxVarSerialized, AuxVarType};
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use core::mem::size_of;
@@ -41,22 +40,22 @@ use core::mem::size_of;
 #[derive(Debug, Default)]
 pub struct InitialLinuxLibcStackLayoutBuilder<'a> {
     /// List of C-strings for program arguments/argument variables.
-    arg_v: Vec<&'a [u8]>,
+    arg_v: Vec<&'a str>,
     /// List of C-strings for environment variables.
-    env_v: Vec<&'a [u8]>,
-    /// List of (key=value)-pairs
+    env_v: Vec<&'a str>,
+    /// List of (key=value)-pairs for the auxiliary vector.
     aux_v: BTreeSet<AuxVar<'a>>,
 }
 
 impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
-    /// Creates a new [`InitialLinuxLibcStackLayoutBuilder`]. The AUX entries [`AuxVarType::AtNull`]
-    /// and [`AuxVarType::AtExecFn`] will be always present.
+    /// Creates a new [`InitialLinuxLibcStackLayoutBuilder`]. The AUX entries [`AuxVarType::Null`]
+    /// and [`AuxVarType::ExecFn`] will be always present.
     pub fn new() -> Self {
         let mut map = BTreeSet::new();
         // this should always be present
-        map.insert(AuxVar::ReferencedData(AuxVarType::AtExecFn, b"\0"));
+        map.insert(AuxVar::ExecFn("\0"));
         // important; keep this in vector early => length calculation of total keys stays correct
-        map.insert(AuxVar::Value(AuxVarType::AtNull, 0));
+        map.insert(AuxVar::Null);
         Self {
             arg_v: vec![],
             env_v: vec![],
@@ -92,29 +91,39 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
 
         // this will also write AT_NULL finally, because it is always at last position in `aux_v`.
         for aux in &self.aux_v {
-            writer.write_aux_entry(*aux)
+            writer.write_aux_entry(aux)
         }
 
         writer.write_finish();
     }
 
-    /// Adds an argument. An argument is an null-terminated C-string.
+    /// Adds an argument. An argument in the final Linux stack layout is a null-terminated C-string.
     ///
     /// # Parameters
-    /// * `c_str` null-terminated c-string
-    pub fn add_arg_v(mut self, c_str: &'a [u8]) -> Self {
-        assert_eq!(c_str[c_str.len() - 1], 0, "c_str must be null-terminated!");
+    /// * `c_str` Terminating null byte is not mandatory, but null-bytes in-between will result
+    ///           in a panic.
+    pub fn add_arg_v(mut self, c_str: &'a str) -> Self {
+        assert!(
+            cstr_contains_at_most_terminating_null_byte(c_str.as_bytes()),
+            "null bytes are only allowed at the end!"
+        );
+
         self.arg_v.push(c_str);
         self
     }
 
-    /// Adds an environmental variable. An envv is a null-terminated C-string with
-    /// a format of `KEY=VALUE\0`.
+    /// Adds an environmental variable. An envv in the final Linux stack layout is a null-terminated
+    /// C-string with a format of `KEY=VALUE\0`.
     ///
     /// # Parameters
-    /// * `c_str` null-terminated c-string
-    pub fn add_env_v(mut self, c_str: &'a [u8]) -> Self {
-        assert_eq!(c_str[c_str.len() - 1], 0, "c_str must be null-terminated!");
+    /// * `c_str` Terminating null byte is not mandatory, but null-bytes in-between will result
+    ///           in a panic.
+    pub fn add_env_v(mut self, c_str: &'a str) -> Self {
+        assert!(
+            cstr_contains_at_most_terminating_null_byte(c_str.as_bytes()),
+            "null bytes are only allowed at the end!"
+        );
+
         self.env_v.push(c_str);
         self
     }
@@ -125,24 +134,18 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     /// * `var`: See [`AuxVar`]. Make sure that the payload is correct, i.e.
     ///          C-strings are null terminated.
     pub fn add_aux_v(mut self, var: AuxVar<'a>) -> Self {
-        // do some validation
-        if var.typ() == AuxVarType::AtRandom {
-            assert_eq!(
-                var.bytes_value().len(),
-                AuxVarType::AtRandom.data_area_val_size_hint().unwrap(),
-                "does not match the expected size"
+        // do some basic validation
+
+        // if no terminating null byte is present, it is okay for convenience.
+        // This can be added manually in the serializer
+        if let Some(cstr) = var.value_payload_cstr() {
+            assert!(
+                cstr_contains_at_most_terminating_null_byte(cstr.as_bytes()),
+                "null bytes are only allowed at the end!"
             );
         }
 
-        if var.typ() == AuxVarType::AtExecFn || var.typ() == AuxVarType::AtPlatform {
-            assert_eq!(
-                *var.bytes_value().last().unwrap(),
-                0,
-                "C-string must be null-terminated!"
-            );
-        }
-
-        // insert alone is not enough
+        // insert alone is not enough - either insert or replace
         if self.aux_v.contains(&var) {
             self.aux_v.replace(var);
         } else {
@@ -181,6 +184,7 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
         // TODO seems like Linux does some more magic for stack alignment
         //  https://elixir.bootlin.com/linux/v5.15.5/source/fs/binfmt_elf.c#L200
         //  Maybe solve this in the future?! IMHO this looks negligible.
+        //  Some L1 Cache optimizations on x86_64
 
         // align up to next 16 byte boundary
         if sum % 16 != 0 {
@@ -211,7 +215,11 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
 
     /// Returns the total offset from the begin pointer to the final null (u64).
     fn offset_to_final_null(&self) -> usize {
-        let filename_bytes = self.filename().map(|x| x.bytes_value().len()).unwrap_or(0);
+        // bytes for the filename C-string including the final null byte
+        let filename_bytes = self
+            .filename()
+            .map(|aux| cstr_len_with_nullbyte(aux.value_payload_cstr().unwrap().as_bytes()))
+            .unwrap_or(0);
         self.offset_to_filename_data_area() + filename_bytes
     }
 
@@ -238,25 +246,35 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     /// Returns the sum of bytes, required to store the C-string of each arg, including
     /// terminating null bytes.
     fn argv_data_area_size(&self) -> usize {
-        self.arg_v.iter().map(|x| x.len()).sum()
+        self.arg_v
+            .iter()
+            .map(|x| cstr_len_with_nullbyte(x.as_bytes()))
+            .sum()
     }
 
     /// Returns the sum of bytes, required to store the C-string of each env var, including
     /// terminating null bytes.
     fn envv_data_area_size(&self) -> usize {
-        self.env_v.iter().map(|x| x.len()).sum()
+        self.env_v
+            .iter()
+            .map(|x| cstr_len_with_nullbyte(x.as_bytes()))
+            .sum()
     }
 
     /// Returns the number of all additional aux vec data in the aux data area, except for
     /// the executable name of [`AuxVarType::AtExecFn`], because it gets special treatment.
+    ///
+    /// Takes into account, that C-strings must be null-terminated.
     fn aux_data_area_size(&self) -> usize {
         self.aux_v
             .iter()
-            .filter(|x| x.typ().value_in_data_area())
-            // file name stands at end of the structure, before the final null byte
-            // and not in the auxv data area
-            .filter(|x| x.typ() != AuxVarType::AtExecFn)
-            .map(|x| x.bytes_value().len())
+            .filter(|x| x.key().value_in_data_area())
+            // AtExecFn: file name stands at end of the structure, before the final null byte
+            //           and not in the auxv data area
+            .filter(|x| x.key() != AuxVarType::ExecFn)
+            // for convenience reasons, users can enter string slices without terminating
+            // null byte - take care here manually!
+            .map(|aux| aux.data_area_serialize_byte_count())
             .sum()
     }
 
@@ -266,7 +284,7 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
     // Actually, I'm not sure if libc implementations care about the pointer location, as long as
     // the pointer is correct..
     fn filename(&self) -> Option<&AuxVar> {
-        self.aux_v.iter().find(|x| x.typ() == AuxVarType::AtExecFn)
+        self.aux_v.iter().find(|x| x.key() == AuxVarType::ExecFn)
     }
 }
 
@@ -277,8 +295,7 @@ mod tests {
 
     #[test]
     fn test_builder_write_size() {
-        let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, b"\0"));
+        let builder = InitialLinuxLibcStackLayoutBuilder::new();
 
         let mut expected_size = 8;
         // 3 * 8: argc, argv[0]=0, envv[0]=0 + padding to 16 byte + null byte
@@ -313,13 +330,10 @@ mod tests {
     #[test]
     fn test_builder_write_size_2() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_arg_v(b"Foo\0")
-            .add_env_v(b"BAR=FOO\0")
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
-            .add_aux_v(AuxVar::ReferencedData(
-                AuxVarType::AtExecFn,
-                b"./executable\0",
-            ));
+            .add_arg_v("Foo")
+            .add_env_v("BAR=FOO")
+            .add_aux_v(AuxVar::Platform("x86_64"))
+            .add_aux_v(AuxVar::ExecFn("./executable"));
 
         assert_eq!(builder.offset_to_argv_key_area(), 8);
         // + 8 + 8 (one entry + null byte)
@@ -363,35 +377,32 @@ mod tests {
                 .iter()
                 .last()
                 .unwrap()
-                .typ(),
-            AuxVarType::AtNull
+                .key(),
+            AuxVarType::Null
         );
         assert_eq!(
             InitialLinuxLibcStackLayoutBuilder::new()
-                .add_aux_v(AuxVar::Value(AuxVarType::AtClktck, 1337))
-                .add_aux_v(AuxVar::Value(AuxVarType::AtNull, 0))
-                .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
+                .add_aux_v(AuxVar::Clktck(0x1337))
+                .add_aux_v(AuxVar::Null)
+                .add_aux_v(AuxVar::Platform("x86_64"))
                 .aux_v
                 .iter()
                 .last()
                 .unwrap()
-                .typ(),
-            AuxVarType::AtNull
+                .key(),
+            AuxVarType::Null
         );
     }
 
     #[test]
     fn test_builder_serializes_data() {
         let builder = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_arg_v(b"Foo\0")
-            .add_env_v(b"BAR=FOO\0")
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtPlatform, b"x86_64\0"))
-            .add_aux_v(AuxVar::ReferencedData(
-                AuxVarType::AtExecFn,
-                b"./executable\0",
-            ))
-            .add_aux_v(AuxVar::Value(AuxVarType::AtUid, 0xdeadbeef))
-            .add_aux_v(AuxVar::Value(AuxVarType::AtClktck, 123456));
+            .add_arg_v("Foo")
+            .add_env_v("BAR=FOO\0")
+            .add_aux_v(AuxVar::Platform("x86_64"))
+            .add_aux_v(AuxVar::ExecFn("./executable"))
+            .add_aux_v(AuxVar::Uid(0xdeadbeef))
+            .add_aux_v(AuxVar::Clktck(123456));
         let mut buf = vec![0; builder.total_size()];
 
         unsafe {
@@ -410,19 +421,11 @@ mod tests {
         println!("}};");*/
     }
 
-    #[should_panic]
-    #[test]
-    fn test_panic_filename_not_null_terminated() {
-        InitialLinuxLibcStackLayoutBuilder::new()
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, b""));
-    }
-
     #[test]
     fn test_default_filename_gets_replaced() {
-        let expected = b"foo\0";
-        let b = InitialLinuxLibcStackLayoutBuilder::new()
-            .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, expected));
-        let actual = b.filename().unwrap().bytes_value();
+        let expected = "foo";
+        let b = InitialLinuxLibcStackLayoutBuilder::new().add_aux_v(AuxVar::ExecFn(expected));
+        let actual = b.filename().unwrap().value_payload_cstr().unwrap();
         assert_eq!(actual, expected);
     }
 }

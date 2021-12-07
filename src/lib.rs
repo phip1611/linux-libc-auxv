@@ -42,57 +42,100 @@ SOFTWARE.
 //! ✅ parse data structure for current address space + output referenced data/pointers \
 //! ✅ parse data structure for **different address space** + prevent memory error / no dereferencing of pointers
 //!
+//! ## Limitations
+//!
+//! ### 32 vs 64 bit
+//! The auxiliary vector contains pairs of type `(usize, usize)`. Hence, each entry takes 8 bytes on 32-bit systems
+//! and 16 byte on 64-bit systems. Currently, this crate produces the auxiliary vector for the architecture it is
+//! compiled with. If necessary, create an issue or a PR and this will be a runtime setting. I never tested it
+//! on a 32-bit system, but I am confident it will work.
+//!
+//! ### Auxiliary Vector vs Stack Layout
+//! Right now, this crate can only build and serialize the whole initial stack layout but not the auxiliary vector
+//! standalone.
+//!
 //! ## Code Example
 //! ```rust
-//! // Minimal example that builds the initial Linux libc stack layout. It includes args, envvs,
-//! // and aux vars. It serializes them and parses the structure afterwards.
+//! use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
 //!
-//! use linux_libc_auxv::{
-//!     AuxVar, AuxVarType, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder,
-//! };
+//! // Minimal example that builds the initial linux libc stack layout and parses it again.
 //!
 //! let builder = InitialLinuxLibcStackLayoutBuilder::new()
-//!     .add_arg_v(b"./first_arg\0")
-//!     .add_arg_v(b"./second_arg\0")
-//!     .add_env_v(b"FOO=BAR\0")
-//!     .add_env_v(b"PATH=/bin\0")
-//!     .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtExecFn, b"./my_executable\0"))
-//!     .add_aux_v(AuxVar::Value(AuxVarType::AtClktck, 1337))
-//!     .add_aux_v(AuxVar::ReferencedData(AuxVarType::AtRandom, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]));
+//!     // can contain terminating zero; not mandatory in the builder
+//!     .add_arg_v("./first_arg\0")
+//!     .add_arg_v("./second_arg")
+//!     .add_env_v("FOO=BAR\0")
+//!     .add_env_v("PATH=/bin")
+//!     .add_aux_v(AuxVar::Clktck(100))
+//!     .add_aux_v(AuxVar::Random([
+//!         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+//!     ]))
+//!     .add_aux_v(AuxVar::ExecFn("/usr/bin/foo"))
+//!     .add_aux_v(AuxVar::Platform("x86_64"));
+//!
+//! // memory where we serialize the data structure into
 //! let mut buf = vec![0; builder.total_size()];
 //!
-//! // user base addr is the initial stack pointer in the user address space
-//! let user_base_addr = buf.as_ptr() as u64;
+//! // assume user stack is at 0x7fff0000
+//! let user_base_addr = 0x7fff0000;
 //! unsafe {
 //!     builder.serialize_into_buf(buf.as_mut_slice(), user_base_addr);
 //! }
 //!
+//! // So far, this is memory safe, as long as the slice is valid memory. No pointers are
+//! // dereferenced yet.
 //! let parsed = InitialLinuxLibcStackLayout::from(buf.as_slice());
 //!
-//! println!("There are {} arguments:", parsed.argc());
+//! println!("There are {} arguments.", parsed.argc());
+//! println!(
+//!     "There are {} environment variables.",
+//!     parsed.envv_ptr_iter().count()
+//! );
+//! println!(
+//!     "There are {} auxiliary vector entries/AT variables.",
+//!     parsed.aux_serialized_iter().count()
+//! );
+//!
+//! println!("  argv");
 //! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-//! for (arg_ptr, arg_val) in parsed.argv_ptr_iter().zip(parsed.argv_iter()) {
-//!     println!("  {:?}: {}", arg_ptr, arg_val);
-//! }
-//! println!("There are {} environment variables:", parsed.envv_ptr_iter().count());
-//! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-//! for (env_ptr, env_val) in parsed.envv_ptr_iter().zip(parsed.envv_iter()) {
-//!     println!("  {:?}: {}", env_ptr, env_val);
+//! for (i, arg) in parsed.argv_ptr_iter().enumerate() {
+//!     println!("    [{}] @ {:?}", i, arg);
 //! }
 //!
-//! println!("There are {} auxiliary vector entries/AT variables:", parsed.aux_iter().count());
-//! // will segfault, if user_ptr != write_ptr (i.e. other address space)
-//! for aux in parsed.aux_iter() {
-//!     if unsafe { aux.data().is_some() } {
-//!         if aux.key() == AuxVarType::AtRandom {
-//!             println!("  {:>12?} => {:?}: {:?}", aux.key(), aux.val() as *const u8, unsafe { aux.data().unwrap() });
-//!         } else {
-//!             println!("  {:>12?} => {:?}: {}", aux.key(), aux.val() as *const u8, unsafe { aux.c_str().unwrap() });
-//!         }
+//! println!("  envp");
+//! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
+//! for (i, env) in parsed.envv_ptr_iter().enumerate() {
+//!     println!("    [{}] @ {:?}", i, env);
+//! }
+//!
+//! println!("  aux");
+//! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
+//! for aux in parsed.aux_serialized_iter() {
+//!     if aux.key().value_in_data_area() {
+//!         println!("    {:?} => @ {:?}", aux.key(), aux.val() as *const u8);
 //!     } else {
-//!         println!("  {:>12?} => {}", aux.key(), aux.val());
+//!         println!("    {:?} => {:?}", aux.key(), aux.val() as *const u8);
 //!     }
 //! }
+//! ```
+//!
+//! ### Code Example Output
+//! ```text
+//! There are 2 arguments.
+//! There are 2 environment variables.
+//! There are 5 auxiliary vector entries/AT variables.
+//!   argv
+//!     [0] @ 0x7fff00b0
+//!     [1] @ 0x7fff00bc
+//!   envp
+//!     [0] @ 0x7fff00c9
+//!     [1] @ 0x7fff00d1
+//!   aux
+//!     Platform => @ 0x7fff0090
+//!     Clktck => 0x64
+//!     Random => @ 0x7fff0097
+//!     ExecFn => @ 0x7fff00db
+//!     Null => 0x0
 //! ```
 //!
 //! ## Terminology (in Code)
@@ -102,6 +145,8 @@ SOFTWARE.
 //!
 //! The `argv`-array will reference data in the `argv data area`, the `envv`-array will reference data in the
 //! `envv data area`, and some of the `auxv`-values might reference data in the `auxv data area`.
+//!
+//! Sometimes (in some articles), the auxiliary vector even describes the whole data structure.
 //!
 //! ## Layout of the Data Structure
 //! ```text
@@ -151,11 +196,12 @@ SOFTWARE.
 #![deny(rustdoc::all)]
 #![no_std]
 
-mod aux_vars;
+mod aux_var;
 mod builder;
+mod cstr_util;
 mod parser;
 
-pub use aux_vars::*;
+pub use aux_var::*;
 pub use builder::*;
 pub use parser::*;
 
