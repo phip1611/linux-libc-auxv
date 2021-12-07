@@ -56,7 +56,6 @@ SOFTWARE.
 //!
 //! ## Code Example
 //! ```rust
-//!
 //! use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
 //!
 //! // Minimal example that builds the initial linux libc stack layout and parses it again.
