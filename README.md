@@ -1,4 +1,4 @@
-# libc-auxv - Build and Parse the Initial Linux Stack Layout for Different Address Spaces
+# linux-libc-auxv: Build and Parse the Initial Linux Stack Layout for Different Address Spaces
 
 Linux passes an initial stack layout to applications, that contains `argc`, `argv`, `envp`, and the `auxiliary vector`
 right above the stack pointer. The libc of a Linux program parses this structure in its `_start`-symbol ("crt0") and
