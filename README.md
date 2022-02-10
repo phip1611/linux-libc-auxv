@@ -42,6 +42,10 @@ standalone.
 
 ## Code Example
 There are multiple code examples in the repository!
+`cargo run --example linux_parse_print_layout` shows you a
+real world example.
+
+### Minimal: Build + Parse
 ```rust
 use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
 
