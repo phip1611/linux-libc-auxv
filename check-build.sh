@@ -17,6 +17,6 @@ rustup target add i686-unknown-linux-musl
 cargo build --target i686-unknown-linux-musl
 cargo test --target i686-unknown-linux-musl
 
-# test no_std
+# test some random no_std target
 rustup target add thumbv7em-none-eabihf
 cargo build --target thumbv7em-none-eabihf

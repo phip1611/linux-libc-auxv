@@ -23,6 +23,20 @@ exclude = [
     ".github"
 ]
 
+# "linux_parse_print_layout" requires nightly.
+# With autoexamples = false I can prevent that
+# this gets build in the CI when only stable
+# is available
+autoexamples = false
+
+[[example]]
+name = "minimal"
+path = "examples/minimal.rs"
+
+[[example]]
+name = "build_and_parse"
+path = "examples/build_and_parse.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

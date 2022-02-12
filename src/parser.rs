@@ -327,8 +327,10 @@ mod tests {
             .add_aux_v(AuxVar::Platform("x86_64\0"))
             .add_aux_v(AuxVar::Uid(0xdeadbeef));
         let mut buf = Vec::with_capacity(builder.total_size());
+        #[allow(clippy::uninit_vec)]
         unsafe {
             buf.set_len(buf.capacity());
+            // fill only works after .set_len
             buf.fill(0);
         }
 
