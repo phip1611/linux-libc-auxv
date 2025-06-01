@@ -11,7 +11,7 @@ This crate has been tested successfully by myself in a custom runtime system for
 and start unmodified Linux binaries. The Linux binary (the libc) could find all arguments,
 environment variables, and the data from the auxiliary vector and print it to stdout.
 
-## How does this differ from <https://crates.io/crates/crt0stack> and <https://crates.io/crates/auxv>?
+## How does this differ from [`crt0stack`] and [`auxv`]?
 This crate supports `no_std`-contexts plus allows construction the data structure for a different address
 space, i.e. the address space of a user application.
 
@@ -20,6 +20,9 @@ the first one supports `no_std` but not different address spaces, I still had to
 The typical use case for me is to create the data structure for a different address space, like Linux does.
 
 Last but not least, my crate supports more/all of Linux's AT variables.
+
+[`crt0stack`]: https://crates.io/crates/crt0stack
+[`auxv`]: https://crates.io/crates/auxv
 
 ## Functionality
 ✅ build data structure for current address space \

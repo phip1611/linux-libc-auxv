@@ -28,13 +28,16 @@ SOFTWARE.
 //! passes the right pointers as arguments to `main` afterwards. This crate helps to construct and parse this data structure
 //! in `no_std` environments and for different address spaces.
 //!
-//! ## How does this differ from <https://crates.io/crates/crt0stack> and <https://crates.io/crates/auxv>?
+//! ## How does this differ from [`crt0stack`] and [`auxv`]?
 //! This crate supports `no_std`-contexts plus allows construction the data structure for a different address
 //! space, i.e. the address space of a user application.
 //!
 //! When I started creating this crate, I only knew about the latter. It doesn't support `no_std`. Because
 //! the first one supports `no_std` but not different address spaces, I still had to create this one.
 //! The typical use case for me is to create the data structure for a different address space, like Linux does.
+//! 
+//! [`crt0stack`]: https://crates.io/crates/crt0stack
+//! [`auxv`]: https://crates.io/crates/auxv
 //!
 //! ## Functionality
 //! ✅ build data structure for current address space \
