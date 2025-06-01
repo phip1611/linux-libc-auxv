@@ -25,6 +25,7 @@ use crate::cstr_util::c_str_len_ptr;
 use crate::{AuxVar, AuxVarSerialized, AuxVarType};
 use core::fmt::Debug;
 use core::marker::PhantomData;
+use core::slice;
 
 /// Wrapper around a slice of data, that represents the data structure that Linux passes to the
 /// libc on program startup. Usually this is a struct from `rsp` (stack pointer) to `x`. It is no
@@ -196,7 +197,7 @@ impl<'a> Iterator for CstrIter<'a> {
         self.arr_iter.next().map(|c_str_ptr| {
             // + null byte
             let c_str_bytes =
-                unsafe { core::slice::from_raw_parts(c_str_ptr, c_str_len_ptr(c_str_ptr) + 1) };
+                unsafe { slice::from_raw_parts(c_str_ptr, c_str_len_ptr(c_str_ptr) + 1) };
             unsafe { core::str::from_utf8_unchecked(c_str_bytes) }
         })
     }

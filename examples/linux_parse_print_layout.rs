@@ -33,7 +33,7 @@ fn start(_argc: isize, argv: *const *const u8) -> isize {
     let buf = unsafe {
         // the stack layout begins `size_of::<usize>()` bytes before argv (at the address of argc)
         let ptr_layout_begin = argv.cast::<u8>().sub(size_of::<usize>());
-        core::slice::from_raw_parts(ptr_layout_begin.cast(), 10000)
+        slice::from_raw_parts(ptr_layout_begin.cast(), 10000)
     };
     let parsed = InitialLinuxLibcStackLayout::from(buf);
 

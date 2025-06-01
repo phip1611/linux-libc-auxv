@@ -25,11 +25,13 @@ SOFTWARE.
 mod serialized;
 mod typ;
 
+pub(crate) use serialized::*;
+pub use typ::*;
+
 use crate::cstr_util::{c_str_len_ptr, c_str_null_terminated};
 use core::cmp::Ordering;
 use core::fmt::Debug;
-pub(crate) use serialized::*;
-pub use typ::*;
+use core::slice;
 
 bitflags::bitflags! {
     /// Flags for the auxiliary vector. See <https://elixir.bootlin.com/linux/v5.15.5/source/include/uapi/linux/binfmts.h#L23>.
@@ -135,7 +137,7 @@ impl<'a> AuxVar<'a> {
                 .key()
                 .data_area_val_size_hint()
                 .unwrap_or_else(|| c_str_len_ptr(data_ptr));
-            let slice = unsafe { core::slice::from_raw_parts(data_ptr, len) };
+            let slice = unsafe { slice::from_raw_parts(data_ptr, len) };
             if serialized.key().value_is_cstr() {
                 let cstr = core::str::from_utf8(slice).expect(
                     "must be valid c string. Either invalid memory or not null-terminated!",

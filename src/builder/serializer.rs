@@ -26,6 +26,7 @@ use crate::builder::InitialLinuxLibcStackLayoutBuilder;
 use crate::cstr_util::c_str_null_terminated;
 use crate::{AuxVar, AuxVarType};
 use core::mem::size_of;
+use core::ptr;
 
 /// Helper for [`AuxVectorStackLayoutBuilder`]. Helps to serialize the args, the env vars,
 /// and the aux vector.
@@ -99,7 +100,7 @@ impl<'a> AuxvSerializer<'a> {
     /// Writes how many actual args are there.
     pub unsafe fn write_argc(&mut self, argc: u64) {
         unsafe {
-            core::ptr::write(self.argc_write_ptr.cast(), argc);
+            ptr::write(self.argc_write_ptr.cast(), argc);
         }
     }
 
@@ -111,13 +112,13 @@ impl<'a> AuxvSerializer<'a> {
         );
 
         unsafe {
-            core::ptr::write(
+            ptr::write(
                 self.argv_key_write_ptr.cast(),
                 self.to_user_ptr(self.argv_data_write_ptr),
             );
             self.argv_key_write_ptr = self.argv_key_write_ptr.add(size_of::<u64>());
 
-            core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.argv_data_write_ptr, c_str.len());
+            ptr::copy_nonoverlapping(c_str.as_ptr(), self.argv_data_write_ptr, c_str.len());
             self.argv_data_write_ptr = self.argv_data_write_ptr.add(c_str.len());
         }
 
@@ -132,10 +133,7 @@ impl<'a> AuxvSerializer<'a> {
     /// Writes a NULL-ptr into the data structure, after all arguments were written.
     pub unsafe fn write_finish_argv(&mut self) {
         unsafe {
-            core::ptr::write(
-                self.argv_key_write_ptr.cast::<*const u8>(),
-                core::ptr::null(),
-            );
+            ptr::write(self.argv_key_write_ptr.cast::<*const u8>(), ptr::null());
         }
     }
 
@@ -146,13 +144,13 @@ impl<'a> AuxvSerializer<'a> {
             "More arguments have been written than capacity is available!"
         );
         unsafe {
-            core::ptr::write(
+            ptr::write(
                 self.envv_key_write_ptr.cast(),
                 self.to_user_ptr(self.envv_data_write_ptr),
             );
             self.envv_key_write_ptr = self.envv_key_write_ptr.add(size_of::<u64>());
 
-            core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.envv_data_write_ptr, c_str.len());
+            ptr::copy_nonoverlapping(c_str.as_ptr(), self.envv_data_write_ptr, c_str.len());
             self.envv_data_write_ptr = self.envv_data_write_ptr.add(c_str.len());
         }
 
@@ -167,10 +165,7 @@ impl<'a> AuxvSerializer<'a> {
     /// Writes a NULL-ptr into the data structure, after all environment variables were written.
     pub unsafe fn write_finish_envv(&mut self) {
         unsafe {
-            core::ptr::write(
-                self.envv_key_write_ptr.cast::<*const u8>(),
-                core::ptr::null(),
-            );
+            ptr::write(self.envv_key_write_ptr.cast::<*const u8>(), ptr::null());
         }
     }
 
@@ -183,7 +178,7 @@ impl<'a> AuxvSerializer<'a> {
 
         unsafe {
             // write key
-            core::ptr::write(self.aux_key_write_ptr.cast(), aux_var.key().val());
+            ptr::write(self.aux_key_write_ptr.cast(), aux_var.key().val());
             // increment 1/2
             self.aux_key_write_ptr = self.aux_key_write_ptr.add(size_of::<usize>());
         }
@@ -193,7 +188,7 @@ impl<'a> AuxvSerializer<'a> {
             // write integer, "external" pointer, or boolean, but no pointer referencing data in
             // aux data area
             unsafe {
-                core::ptr::write(self.aux_key_write_ptr.cast::<usize>(), aux_var.value_raw());
+                ptr::write(self.aux_key_write_ptr.cast::<usize>(), aux_var.value_raw());
             }
         } else {
             // Pointer to the pointer of the C-string, either into aux vec data area or
@@ -220,7 +215,7 @@ impl<'a> AuxvSerializer<'a> {
 
             // pointer into aux data area
             unsafe {
-                core::ptr::write(
+                ptr::write(
                     self.aux_key_write_ptr.cast(),
                     self.to_user_ptr(*data_write_ptr_ptr),
                 );
@@ -228,7 +223,7 @@ impl<'a> AuxvSerializer<'a> {
 
             unsafe {
                 // copy payload into aux data area
-                core::ptr::copy_nonoverlapping(bytes.as_ptr(), *data_write_ptr_ptr, bytes.len());
+                ptr::copy_nonoverlapping(bytes.as_ptr(), *data_write_ptr_ptr, bytes.len());
                 // update pointer for next iteration
                 *data_write_ptr_ptr = (*data_write_ptr_ptr).add(bytes.len());
             }
@@ -250,7 +245,7 @@ impl<'a> AuxvSerializer<'a> {
     /// Writes a final NULL-ptr into the data structure.
     pub unsafe fn write_finish(&mut self) {
         unsafe {
-            core::ptr::write(self.final_null_ptr.cast::<*const u8>(), core::ptr::null());
+            ptr::write(self.final_null_ptr.cast::<*const u8>(), ptr::null());
         }
     }
 
@@ -266,7 +261,7 @@ impl<'a> AuxvSerializer<'a> {
     ) {
         if !c_str_null_terminated(bytes) {
             unsafe {
-                core::ptr::write(*write_ptr_ptr, 0);
+                ptr::write(*write_ptr_ptr, 0);
                 *write_ptr_ptr = (*write_ptr_ptr).add(1);
             }
         }
@@ -292,6 +287,7 @@ mod tests {
     use crate::cstr_util::cstr_len_with_nullbyte;
     use crate::{AuxVar, AuxVarSerialized, AuxVarType, InitialLinuxLibcStackLayoutBuilder};
     use std::mem::size_of;
+    use std::slice;
 
     /// Dedicated test for AuxV. I needed it to find a bug.
     #[test]
@@ -489,7 +485,7 @@ mod tests {
                     // special treatment for this key
                     let bytes_written_len = aux.data_area_serialize_byte_count();
                     if aux.key() == AuxVarType::ExecFn {
-                        let slice = core::slice::from_raw_parts(
+                        let slice = slice::from_raw_parts(
                             writer.filename_write_ptr.sub(bytes_written_len),
                             bytes_written_len,
                         );
