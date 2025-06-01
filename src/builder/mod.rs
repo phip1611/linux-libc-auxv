@@ -79,22 +79,30 @@ impl<'a> InitialLinuxLibcStackLayoutBuilder<'a> {
         );
         let write_ptr = write_buf.as_mut_ptr();
         let mut writer = AuxvSerializer::new(self, write_ptr, user_ptr);
-        writer.write_argc(self.arg_v.len() as u64);
+        unsafe {
+            writer.write_argc(self.arg_v.len() as u64);
+        }
         for arg in &self.arg_v {
-            writer.write_arg(arg);
+            unsafe {
+                writer.write_arg(arg);
+            }
         }
-        writer.write_finish_argv();
+        unsafe {
+            writer.write_finish_argv();
+        }
         for env in &self.env_v {
-            writer.write_env(env);
+            unsafe {
+                writer.write_env(env);
+            }
         }
-        writer.write_finish_envv();
+        unsafe { writer.write_finish_envv() };
 
         // this will also write AT_NULL finally, because it is always at last position in `aux_v`.
         for aux in &self.aux_v {
-            writer.write_aux_entry(aux)
+            unsafe { writer.write_aux_entry(aux) }
         }
 
-        writer.write_finish();
+        unsafe { writer.write_finish() };
     }
 
     /// Adds an argument. An argument in the final Linux stack layout is a null-terminated C-string.

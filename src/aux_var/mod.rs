@@ -135,7 +135,7 @@ impl<'a> AuxVar<'a> {
                 .key()
                 .data_area_val_size_hint()
                 .unwrap_or_else(|| c_str_len_ptr(data_ptr));
-            let slice = core::slice::from_raw_parts(data_ptr, len);
+            let slice = unsafe { core::slice::from_raw_parts(data_ptr, len) };
             if serialized.key().value_is_cstr() {
                 let cstr = core::str::from_utf8(slice).expect(
                     "must be valid c string. Either invalid memory or not null-terminated!",

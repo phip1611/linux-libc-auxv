@@ -98,7 +98,9 @@ impl<'a> AuxvSerializer<'a> {
     }
     /// Writes how many actual args are there.
     pub unsafe fn write_argc(&mut self, argc: u64) {
-        core::ptr::write(self.argc_write_ptr.cast(), argc);
+        unsafe {
+            core::ptr::write(self.argc_write_ptr.cast(), argc);
+        }
     }
 
     /// Writes the next arg into the data structure.
@@ -108,27 +110,33 @@ impl<'a> AuxvSerializer<'a> {
             "More arguments have been written than capacity is available!"
         );
 
-        core::ptr::write(
-            self.argv_key_write_ptr.cast(),
-            self.to_user_ptr(self.argv_data_write_ptr),
-        );
-        self.argv_key_write_ptr = self.argv_key_write_ptr.add(size_of::<u64>());
+        unsafe {
+            core::ptr::write(
+                self.argv_key_write_ptr.cast(),
+                self.to_user_ptr(self.argv_data_write_ptr),
+            );
+            self.argv_key_write_ptr = self.argv_key_write_ptr.add(size_of::<u64>());
 
-        core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.argv_data_write_ptr, c_str.len());
-        self.argv_data_write_ptr = self.argv_data_write_ptr.add(c_str.len());
+            core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.argv_data_write_ptr, c_str.len());
+            self.argv_data_write_ptr = self.argv_data_write_ptr.add(c_str.len());
+        }
 
         let write_ptr_ptr = &mut self.argv_data_write_ptr as *mut _;
-        self.write_cstr_null_byte_if_not_present(c_str.as_bytes(), write_ptr_ptr);
+        unsafe {
+            self.write_cstr_null_byte_if_not_present(c_str.as_bytes(), write_ptr_ptr);
+        }
 
         self.arg_write_count += 1;
     }
 
     /// Writes a NULL-ptr into the data structure, after all arguments were written.
     pub unsafe fn write_finish_argv(&mut self) {
-        core::ptr::write(
-            self.argv_key_write_ptr.cast::<*const u8>(),
-            core::ptr::null(),
-        );
+        unsafe {
+            core::ptr::write(
+                self.argv_key_write_ptr.cast::<*const u8>(),
+                core::ptr::null(),
+            );
+        }
     }
 
     /// Writes the next env var into the data structure.
@@ -137,28 +145,33 @@ impl<'a> AuxvSerializer<'a> {
             self.builder.env_v.len() > self.env_write_count,
             "More arguments have been written than capacity is available!"
         );
+        unsafe {
+            core::ptr::write(
+                self.envv_key_write_ptr.cast(),
+                self.to_user_ptr(self.envv_data_write_ptr),
+            );
+            self.envv_key_write_ptr = self.envv_key_write_ptr.add(size_of::<u64>());
 
-        core::ptr::write(
-            self.envv_key_write_ptr.cast(),
-            self.to_user_ptr(self.envv_data_write_ptr),
-        );
-        self.envv_key_write_ptr = self.envv_key_write_ptr.add(size_of::<u64>());
-
-        core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.envv_data_write_ptr, c_str.len());
-        self.envv_data_write_ptr = self.envv_data_write_ptr.add(c_str.len());
+            core::ptr::copy_nonoverlapping(c_str.as_ptr(), self.envv_data_write_ptr, c_str.len());
+            self.envv_data_write_ptr = self.envv_data_write_ptr.add(c_str.len());
+        }
 
         let write_ptr_ptr = &mut self.envv_data_write_ptr as *mut _;
-        self.write_cstr_null_byte_if_not_present(c_str.as_bytes(), write_ptr_ptr);
+        unsafe {
+            self.write_cstr_null_byte_if_not_present(c_str.as_bytes(), write_ptr_ptr);
+        }
 
         self.env_write_count += 1;
     }
 
     /// Writes a NULL-ptr into the data structure, after all environment variables were written.
     pub unsafe fn write_finish_envv(&mut self) {
-        core::ptr::write(
-            self.envv_key_write_ptr.cast::<*const u8>(),
-            core::ptr::null(),
-        );
+        unsafe {
+            core::ptr::write(
+                self.envv_key_write_ptr.cast::<*const u8>(),
+                core::ptr::null(),
+            );
+        }
     }
 
     /// Writes an aux vector pair/AT variable into the data structure.
@@ -168,16 +181,20 @@ impl<'a> AuxvSerializer<'a> {
             "More arguments have been written than capacity is available!"
         );
 
-        // write key
-        core::ptr::write(self.aux_key_write_ptr.cast(), aux_var.key().val());
-        // increment 1/2
-        self.aux_key_write_ptr = self.aux_key_write_ptr.add(size_of::<usize>());
+        unsafe {
+            // write key
+            core::ptr::write(self.aux_key_write_ptr.cast(), aux_var.key().val());
+            // increment 1/2
+            self.aux_key_write_ptr = self.aux_key_write_ptr.add(size_of::<usize>());
+        }
 
         // TODO maybe move away from key
         if !aux_var.key().value_in_data_area() {
             // write integer, "external" pointer, or boolean, but no pointer referencing data in
             // aux data area
-            core::ptr::write(self.aux_key_write_ptr.cast::<usize>(), aux_var.value_raw());
+            unsafe {
+                core::ptr::write(self.aux_key_write_ptr.cast::<usize>(), aux_var.value_raw());
+            }
         } else {
             // Pointer to the pointer of the C-string, either into aux vec data area or
             // into filename data area
@@ -202,31 +219,39 @@ impl<'a> AuxvSerializer<'a> {
             }
 
             // pointer into aux data area
-            core::ptr::write(
-                self.aux_key_write_ptr.cast(),
-                self.to_user_ptr(*data_write_ptr_ptr),
-            );
+            unsafe {
+                core::ptr::write(
+                    self.aux_key_write_ptr.cast(),
+                    self.to_user_ptr(*data_write_ptr_ptr),
+                );
+            }
 
-            // copy payload into aux data area
-            core::ptr::copy_nonoverlapping(bytes.as_ptr(), *data_write_ptr_ptr, bytes.len());
-            // update pointer for next iteration
-            *data_write_ptr_ptr = (*data_write_ptr_ptr).add(bytes.len());
+            unsafe {
+                // copy payload into aux data area
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), *data_write_ptr_ptr, bytes.len());
+                // update pointer for next iteration
+                *data_write_ptr_ptr = (*data_write_ptr_ptr).add(bytes.len());
+            }
 
             // will update data_write_ptr_ptr, if null byte is written
             if is_c_str {
-                self.write_cstr_null_byte_if_not_present(bytes, data_write_ptr_ptr);
+                unsafe {
+                    self.write_cstr_null_byte_if_not_present(bytes, data_write_ptr_ptr);
+                }
             }
         }
 
         // increment 2/2 (after value/ptr was written)
-        self.aux_key_write_ptr = self.aux_key_write_ptr.add(size_of::<usize>());
+        self.aux_key_write_ptr = unsafe { self.aux_key_write_ptr.add(size_of::<usize>()) };
 
         self.aux_write_count += 1;
     }
 
     /// Writes a final NULL-ptr into the data structure.
     pub unsafe fn write_finish(&mut self) {
-        core::ptr::write(self.final_null_ptr.cast::<*const u8>(), core::ptr::null());
+        unsafe {
+            core::ptr::write(self.final_null_ptr.cast::<*const u8>(), core::ptr::null());
+        }
     }
 
     /// Helper function for all serializations of C-strings. For convenience reasons they don't
@@ -240,8 +265,10 @@ impl<'a> AuxvSerializer<'a> {
         write_ptr_ptr: *mut *mut u8,
     ) {
         if !c_str_null_terminated(bytes) {
-            core::ptr::write(*write_ptr_ptr, 0);
-            *write_ptr_ptr = (*write_ptr_ptr).add(1);
+            unsafe {
+                core::ptr::write(*write_ptr_ptr, 0);
+                *write_ptr_ptr = (*write_ptr_ptr).add(1);
+            }
         }
     }
 
@@ -393,7 +420,10 @@ mod tests {
                 arg_byte_count += cstr_len_with_nullbyte(arg.as_bytes());
                 let ptr_diff =
                     writer.argv_data_write_ptr as usize - initial_argv_data_write_ptr as usize;
-                assert_eq!(ptr_diff, arg_byte_count, "must write the correct amount of bytes of all c-strings for the args and update the write pointers!");
+                assert_eq!(
+                    ptr_diff, arg_byte_count,
+                    "must write the correct amount of bytes of all c-strings for the args and update the write pointers!"
+                );
             }
             writer.write_finish_argv();
         }
@@ -417,7 +447,10 @@ mod tests {
                 env_byte_count += cstr_len_with_nullbyte(env.as_bytes());
                 let ptr_diff =
                     writer.envv_data_write_ptr as usize - initial_envv_data_write_ptr as usize;
-                assert_eq!(ptr_diff, env_byte_count, "must write the correct amount of bytes of all c-strings for the env vars and update the write pointers!");
+                assert_eq!(
+                    ptr_diff, env_byte_count,
+                    "must write the correct amount of bytes of all c-strings for the env vars and update the write pointers!"
+                );
             }
             writer.write_finish_envv();
         }

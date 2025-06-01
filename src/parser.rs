@@ -77,7 +77,7 @@ impl<'a> InitialLinuxLibcStackLayout<'a> {
     /// This function produces UB (page fault, seg fault, read invalid memory), if the referenced
     /// pointers are not valid inside the address space of the caller.
     pub unsafe fn argv_iter(&self) -> CstrIter {
-        CstrIter::new(self.get_argv_ptr())
+        unsafe { CstrIter::new(self.get_argv_ptr()) }
     }
 
     /// Iterates only over the pointers of the C-string arguments. See [`NullTerminatedArrIter`].
@@ -107,7 +107,7 @@ impl<'a> InitialLinuxLibcStackLayout<'a> {
     /// This function produces UB (page fault, seg fault, read invalid memory), if the referenced
     /// pointers are not valid inside the address space of the caller.
     pub unsafe fn envv_iter(&self) -> CstrIter {
-        CstrIter::new(self.get_envv_ptr())
+        unsafe { CstrIter::new(self.get_envv_ptr()) }
     }
 
     /// Iterates only over the pointers to the environment variables. See [`NullTerminatedArrIter`].

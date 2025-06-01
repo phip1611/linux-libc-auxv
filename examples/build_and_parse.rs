@@ -116,18 +116,18 @@ fn parse_memory_safe(parsed: &InitialLinuxLibcStackLayout) {
 unsafe fn parse_memory_unsafe(parsed: &InitialLinuxLibcStackLayout) {
     println!("  argv");
     // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-    for (i, arg) in parsed.argv_iter().enumerate() {
+    for (i, arg) in unsafe { parsed.argv_iter() }.enumerate() {
         println!("    [{}] {}", i, arg);
     }
 
     println!("  envp");
     // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-    for (i, env) in parsed.envv_iter().enumerate() {
+    for (i, env) in unsafe { parsed.envv_iter() }.enumerate() {
         println!("    [{}] {}", i, env);
     }
 
     println!("  aux");
-    for aux in parsed.aux_var_iter() {
+    for aux in unsafe { parsed.aux_var_iter() } {
         // currently: Only AT_RANDOM
         if let Some(bytes) = aux.value_payload_bytes() {
             println!(

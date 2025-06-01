@@ -166,7 +166,7 @@ argc = integer <libc entry stack top>  [LOW ADDRESS]
 ```
 
 ## MSRV
-1.56.1 stable / Rust edition 2021
+1.85.0 stable
 
 ## Background Information & Links
 - <https://lwn.net/Articles/631631/> (good overview with ASCII graphics)

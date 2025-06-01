@@ -24,7 +24,7 @@ SOFTWARE.
 #![no_start]
 #![feature(start)]
 
-use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
+use linux_libc_auxv::{InitialLinuxLibcStackLayout};
 use std::mem::size_of;
 
 /// Example that parses the layout and prints it. Only runs on Linux.

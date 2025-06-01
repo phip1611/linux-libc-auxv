@@ -35,7 +35,7 @@ SOFTWARE.
 //! When I started creating this crate, I only knew about the latter. It doesn't support `no_std`. Because
 //! the first one supports `no_std` but not different address spaces, I still had to create this one.
 //! The typical use case for me is to create the data structure for a different address space, like Linux does.
-//! 
+//!
 //! [`crt0stack`]: https://crates.io/crates/crt0stack
 //! [`auxv`]: https://crates.io/crates/auxv
 //!
@@ -174,7 +174,7 @@ SOFTWARE.
 //! ```
 //!
 //! ## MSRV
-//! 1.56.1 stable / Rust edition 2021
+//! 1.85.0 stable
 //!
 //! ## Background Information & Links
 //! - <https://lwn.net/Articles/631631/> (good overview with ASCII graphics)
