@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2021 Philipp Schuster
+Copyright (c) 2025 Philipp Schuster
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,157 +21,106 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-//! # libc-auxv - Build and Parse the Initial Linux Stack Layout for Different Address Spaces
+
+//! # linux-libc-auxv
 //!
-//! Linux passes an initial stack layout to applications, that contains `argc`, `argv`, `envp`, and the `auxiliary vector`
-//! right above the stack pointer. The libc of a Linux program parses this sturcture in its `_start`-symbol ("crt0") and
-//! passes the right pointers as arguments to `main` afterwards. This crate helps to construct and parse this data structure
-//! in `no_std` environments and for different address spaces.
+//! A parser and builder for the Linux process initial stack layout - use it to
+//! decode or construct `argc`, `argv`, `envp`/`envv`, and `auxv` (auxiliary
+//! vector).
 //!
-//! ## How does this differ from [`crt0stack`] and [`auxv`]?
-//! This crate supports `no_std`-contexts plus allows construction the data structure for a different address
-//! space, i.e. the address space of a user application.
+//! **Keywords**: crt0, stack layout, AT values, AT pairs, auxvec, auxiliary vector
 //!
-//! When I started creating this crate, I only knew about the latter. It doesn't support `no_std`. Because
-//! the first one supports `no_std` but not different address spaces, I still had to create this one.
-//! The typical use case for me is to create the data structure for a different address space, like Linux does.
+//! ## Terminology
+//!
+//! I use `argv`, `envv`, and `auxv` as names for the null-terminated arrays
+//! (vectors) of the corresponding data. They have corresponding "data areas" where
+//! pointers point to: _argv data area_, _envp data area_, and _auxv data area_.
+//!
+//! ## About the Stack Layout
+//!
+//! Linux passes an initial stack layout to applications that contains `argc`,
+//! `argv`, `envp`/`envv`, and the `auxiliary vector`. Normal applications don't
+//! see this as the libc (crt0 component) abstracts this away. For more low-level
+//! developers and kernel hackers creating and parsing this feature becomes
+//! relevant.
+//!
+//!
+//! This crate has been tested successfully by myself in a custom runtime system for
+//! a Microkernel which loads and starts unmodified Linux binaries. The Linux binary
+//! (the libc) was able to find all arguments, environment variables, and the data
+//! from the auxiliary vector. Everything was printed properly to stdout.
+//!
+//! ### Layout Structure
+//!
+//! The following figure shows the technical details of the layout. The figure is
+//! taken from <https://lwn.net/Articles/631631/>. As the structure needs to
+//! know the pointers beforehand, creating the structure is not trivial. The
+//! builder helps to construct this complex binary structure with references
+//! into itself.
+//!
+//! ```text
+//!    ------------------------------------------------------------- 0x7fff6c845000
+//!     0x7fff6c844ff8: 0x0000000000000000
+//!            _  4fec: './stackdump\0'                      <------+
+//!      env  /   4fe2: 'ENVVAR2=2\0'                               |    <----+
+//!           \_  4fd8: 'ENVVAR1=1\0'                               |   <---+ |
+//!           /   4fd4: 'two\0'                                     |       | |     <----+
+//!     args |    4fd0: 'one\0'                                     |       | |    <---+ |
+//!           \_  4fcb: 'zero\0'                                    |       | |   <--+ | |
+//!               3020: random gap padded to 16B boundary           |       | |      | | |
+//!    - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -|       | |      | | |
+//!               3019: 'x86_64\0'                        <-+       |       | |      | | |
+//!     auxv      3009: random data: ed99b6...2adcc7        | <-+   |       | |      | | |
+//!     data      3000: zero padding to align stack         |   |   |       | |      | | |
+//!    . . . . . . . . . . . . . . . . . . . . . . . . . . .|. .|. .|       | |      | | |
+//!               2ff0: AT_NULL(0)=0                        |   |   |       | |      | | |
+//!               2fe0: AT_PLATFORM(15)=0x7fff6c843019    --+   |   |       | |      | | |
+//!               2fd0: AT_EXECFN(31)=0x7fff6c844fec      ------|---+       | |      | | |
+//!               2fc0: AT_RANDOM(25)=0x7fff6c843009      ------+           | |      | | |
+//!      ELF      2fb0: AT_SECURE(23)=0                                     | |      | | |
+//!    auxiliary  2fa0: AT_EGID(14)=1000                                    | |      | | |
+//!     vector:   2f90: AT_GID(13)=1000                                     | |      | | |
+//!    (id,val)   2f80: AT_EUID(12)=1000                                    | |      | | |
+//!      pairs    2f70: AT_UID(11)=1000                                     | |      | | |
+//!               2f60: AT_ENTRY(9)=0x4010c0                                | |      | | |
+//!               2f50: AT_FLAGS(8)=0                                       | |      | | |
+//!               2f40: AT_BASE(7)=0x7ff6c1122000                           | |      | | |
+//!               2f30: AT_PHNUM(5)=9                                       | |      | | |
+//!               2f20: AT_PHENT(4)=56                                      | |      | | |
+//!               2f10: AT_PHDR(3)=0x400040                                 | |      | | |
+//!               2f00: AT_CLKTCK(17)=100                                   | |      | | |
+//!               2ef0: AT_PAGESZ(6)=4096                                   | |      | | |
+//!               2ee0: AT_HWCAP(16)=0xbfebfbff                             | |      | | |
+//!               2ed0: AT_SYSINFO_EHDR(33)=0x7fff6c86b000                  | |      | | |
+//!    . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        | |      | | |
+//!               2ec8: environ[2]=(nil)                                    | |      | | |
+//!               2ec0: environ[1]=0x7fff6c844fe2         ------------------|-+      | | |
+//!               2eb8: environ[0]=0x7fff6c844fd8         ------------------+        | | |
+//!               2eb0: argv[3]=(nil)                                                | | |
+//!               2ea8: argv[2]=0x7fff6c844fd4            ---------------------------|-|-+
+//!               2ea0: argv[1]=0x7fff6c844fd0            ---------------------------|-+
+//!               2e98: argv[0]=0x7fff6c844fcb            ---------------------------+
+//!     0x7fff6c842e90: argc=3
+//!```
+//!_Credits: <https://lwn.net/Articles/631631/>_
+//!
+//! ## Differences to Crates [`crt0stack`] and [`auxv`]
+//!
+//! This crate supports `no_std`-contexts plus **allows construction** of the data
+//! structure **for a different address space**, i.e. the address space of a user
+//! application.
 //!
 //! [`crt0stack`]: https://crates.io/crates/crt0stack
 //! [`auxv`]: https://crates.io/crates/auxv
 //!
 //! ## Functionality
+//!
 //! ✅ build data structure for current address space \
 //! ✅ build data structure for **different address space** \
 //! ✅ parse data structure for current address space + output referenced data/pointers \
 //! ✅ parse data structure for **different address space** + prevent memory error / no dereferencing of pointers
 //!
-//! ## Limitations
 //!
-//! ### 32 vs 64 bit
-//! The auxiliary vector contains pairs of type `(usize, usize)`. Hence, each entry takes 8 bytes on 32-bit systems
-//! and 16 byte on 64-bit systems. Currently, this crate produces the auxiliary vector for the architecture it is
-//! compiled with. If necessary, create an issue or a PR and this will be a runtime setting. I never tested it
-//! on a 32-bit system, but I am confident it will work.
-//!
-//! ### Auxiliary Vector vs Stack Layout
-//! Right now, this crate can only build and serialize the whole initial stack layout but not the auxiliary vector
-//! standalone.
-//!
-//! ## Code Example
-//! ```rust
-//! use linux_libc_auxv::{AuxVar, InitialLinuxLibcStackLayout, InitialLinuxLibcStackLayoutBuilder};
-//!
-//! // Minimal example that builds the initial linux libc stack layout and parses it again.
-//!
-//! let builder = InitialLinuxLibcStackLayoutBuilder::new()
-//!     // can contain terminating zero; not mandatory in the builder
-//!     .add_arg_v("./first_arg\0")
-//!     .add_arg_v("./second_arg")
-//!     .add_env_v("FOO=BAR\0")
-//!     .add_env_v("PATH=/bin")
-//!     .add_aux_v(AuxVar::Clktck(100))
-//!     .add_aux_v(AuxVar::Random([
-//!         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-//!     ]))
-//!     .add_aux_v(AuxVar::ExecFn("/usr/bin/foo"))
-//!     .add_aux_v(AuxVar::Platform("x86_64"));
-//!
-//! // memory where we serialize the data structure into
-//! let mut buf = vec![0; builder.total_size()];
-//!
-//! // assume user stack is at 0x7fff0000
-//! let user_base_addr = 0x7fff0000;
-//! unsafe {
-//!     builder.serialize_into_buf(buf.as_mut_slice(), user_base_addr);
-//! }
-//!
-//! // So far, this is memory safe, as long as the slice is valid memory. No pointers are
-//! // dereferenced yet.
-//! let parsed = InitialLinuxLibcStackLayout::from(buf.as_slice());
-//!
-//! println!("There are {} arguments.", parsed.argc());
-//! println!(
-//!     "There are {} environment variables.",
-//!     parsed.envv_ptr_iter().count()
-//! );
-//! println!(
-//!     "There are {} auxiliary vector entries/AT variables.",
-//!     parsed.aux_serialized_iter().count()
-//! );
-//!
-//! println!("  argv");
-//! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-//! for (i, arg) in parsed.argv_ptr_iter().enumerate() {
-//!     println!("    [{}] @ {:?}", i, arg);
-//! }
-//!
-//! println!("  envp");
-//! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-//! for (i, env) in parsed.envv_ptr_iter().enumerate() {
-//!     println!("    [{}] @ {:?}", i, env);
-//! }
-//!
-//! println!("  aux");
-//! // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-//! for aux in parsed.aux_serialized_iter() {
-//!     if aux.key().value_in_data_area() {
-//!         println!("    {:?} => @ {:?}", aux.key(), aux.val() as *const u8);
-//!     } else {
-//!         println!("    {:?} => {:?}", aux.key(), aux.val() as *const u8);
-//!     }
-//! }
-//! ```
-//!
-//! ### Code Example Output
-//! ```text
-//! There are 2 arguments.
-//! There are 2 environment variables.
-//! There are 5 auxiliary vector entries/AT variables.
-//!   argv
-//!     [0] @ 0x7fff00b0
-//!     [1] @ 0x7fff00bc
-//!   envp
-//!     [0] @ 0x7fff00c9
-//!     [1] @ 0x7fff00d1
-//!   aux
-//!     Platform => @ 0x7fff0090
-//!     Clktck => 0x64
-//!     Random => @ 0x7fff0097
-//!     ExecFn => @ 0x7fff00db
-//!     Null => 0x0
-//! ```
-//!
-//! ## Terminology (in Code)
-//! The whole data structure is called `InitialLinuxLibcStackLayout` by me. There is no official name. It contains
-//! the arguments (`argc` and `argv`), the environment variables (`envp` or `envv`), and the auxiliary vector
-//! (`AT-variables`, `auxv`, `aux-pairs`, `aux entries`).
-//!
-//! The `argv`-array will reference data in the `argv data area`, the `envv`-array will reference data in the
-//! `envv data area`, and some of the `auxv`-values might reference data in the `auxv data area`.
-//!
-//! Sometimes (in some articles), the auxiliary vector even describes the whole data structure.
-//!
-//! ## Layout of the Data Structure
-//! ```text
-//! null                                   [HIGH ADDRESS]
-//! filename (c string)
-//! <env data area>
-//! <args data area>
-//! // round up to 16 byte
-//! <aux vec data area>
-//! // round up to 16 byte alignment
-//! AT_VAR_3 = <points to aux vec data area>
-//! AT_VAR_2 = integer
-//! AT_VAR_1 = integer
-//! // round up to 16 byte alignment
-//! envv[2] = null
-//! envv[1] = <points to env data area>
-//! envv[0] = <points to env data area>
-//! argv[2] = null
-//! argv[1] = <points to args data area>
-//! argv[0] = <points to args data area>
-//! argc = integer <libc entry stack top>  [LOW ADDRESS]
-//! ```
 //!
 //! ## MSRV
 //! 1.85.0 stable
@@ -180,6 +129,8 @@ SOFTWARE.
 //! - <https://lwn.net/Articles/631631/> (good overview with ASCII graphics)
 //! - <https://lwn.net/Articles/519085/>
 //! - <https://elixir.bootlin.com/linux/v5.15.5/source/fs/binfmt_elf.c#L257> (code in Linux that constructs `auxv`)
+//! - <https://man7.org/linux/man-pages/man3/getauxval.3.html>
+//! - <https://refspecs.linuxfoundation.org/ELF/zSeries/lzsabi0_zSeries/x895.html>
 
 #![deny(
     clippy::all,
@@ -199,18 +150,21 @@ SOFTWARE.
 #![deny(rustdoc::all)]
 #![no_std]
 
-mod aux_var;
-mod builder;
-mod cstr_util;
-mod parser;
-
-pub use aux_var::*;
-pub use builder::*;
-pub use parser::*;
-
-#[macro_use]
+#[cfg_attr(feature = "alloc", macro_use)]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
 extern crate std;
+
+pub use aux_var::{AuxVar, AuxVarFlags, AuxVarRaw, AuxVarType};
+#[cfg(feature = "builder")]
+pub use builder::StackLayoutBuilder;
+pub use parser::StackLayoutRef;
+
+mod aux_var;
+#[cfg(feature = "builder")]
+mod builder;
+mod parser;
+mod util;

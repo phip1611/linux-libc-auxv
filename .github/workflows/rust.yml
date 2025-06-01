@@ -24,9 +24,10 @@ jobs:
           profile: default
           toolchain: ${{ matrix.rust }}
           override: true
-      - run: cargo build
-      - run: cargo build --example build_and_parse
-      - run: cargo build --example minimal
+      - run: cargo build --no-default-features
+      - run: cargo build --features alloc
+      - run: cargo build --features alloc,builder
+      - run: cargo build --all-targets --features alloc,builder
       - run: cargo test
 
       # test 32-bit build (because AT-values are usize)
@@ -34,10 +35,21 @@ jobs:
       - run: cargo build --target i686-unknown-linux-musl
       - run: cargo test --target i686-unknown-linux-musl
 
+      # run examples: The test here is that they don't crash
+      - run: cargo run --example minimal_builder
+      - run: cargo run --example minimal_builder --target i686-unknown-linux-musl
+      - run: cargo run --example linux_print_layout -- first second third
+      - run: cargo run --example linux_print_layout --target i686-unknown-linux-musl -- first second third
+
       # test `no_std`-build with some `no_std`-target
       - run: rustup target add thumbv7em-none-eabihf
       - run: cargo build --target thumbv7em-none-eabihf
 
+      # Run miri
+      - run: |
+          rustup toolchain add nightly
+          rustup component add miri
+      - run: cargo +nightly miri test
   style_checks:
     runs-on: ubuntu-latest
     strategy:
@@ -56,6 +68,6 @@ jobs:
       - name: Rustfmt
         run: cargo fmt -- --check
       - name: Clippy
-        run: cargo clippy
+        run: cargo clippy --all-targets
       - name: Rustdoc
-        run: cargo doc
+        run: cargo doc --no-deps --document-private-items

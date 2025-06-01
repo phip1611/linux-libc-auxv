@@ -3,13 +3,10 @@
 [package]
 name = "linux-libc-auxv"
 description = """
-Linux passes an initial stack layout to applications, that contains `argc`, `argv`, `envp`, and the
-`auxiliary vector` right above the stack pointer. The libc of a Linux program parses this structure
-in its `_start`-symbol ("crt0") and passes the right pointers as arguments to `main` afterward. This
-crate helps to construct and parse this data structure in `no_std` environments and for different
-address spaces.
+A parser and builder for the Linux process initial stack layout - use it to
+decode or construct argc, argv, envp, and auxv (auxiliary vector).
 """
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85.0"
 authors = [
@@ -26,6 +23,13 @@ exclude = [
     ".github"
 ]
 
+[features]
+default = [ "alloc", "builder" ]
+alloc = []
+builder = ["alloc", "dep:aligned-vec"]
+
 [dependencies]
-enum-iterator = "0.7"
-bitflags = "1.3"
+aligned-vec = { version = "0.6.4", default-features = false, optional = true }
+bitflags = "2.9.1"
+thiserror = { version = "2.0.12", default-features = false }
+

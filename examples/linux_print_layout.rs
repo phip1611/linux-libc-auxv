@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2021 Philipp Schuster
+Copyright (c) 2025 Philipp Schuster
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -23,45 +23,49 @@ SOFTWARE.
 */
 #![no_main]
 
-use linux_libc_auxv::{InitialLinuxLibcStackLayout};
-use std::mem::size_of;
+use linux_libc_auxv::StackLayoutRef;
 use std::slice;
 
 /// Example that parses the layout and prints it. Only runs on Linux.
 #[unsafe(no_mangle)]
-fn main(_argc: isize, argv: *const *const u8) -> isize {
-    let buf = unsafe {
-        // the stack layout begins `size_of::<usize>()` bytes before argv (at the address of argc)
-        let ptr_layout_begin = argv.cast::<u8>().sub(size_of::<usize>());
-        slice::from_raw_parts(ptr_layout_begin.cast(), 10000)
+fn main(argc: isize, argv: *const *const u8) -> isize {
+    let buffer = unsafe {
+        // 100 KiB, reasonably big.
+        // On my Linux machine, the structure needs 23 KiB
+        slice::from_raw_parts(argv.cast::<u8>(), 0x19000)
     };
-    let parsed = InitialLinuxLibcStackLayout::from(buf);
+
+    let parsed = StackLayoutRef::new(buffer, Some(argc as usize));
 
     println!("There are {} arguments.", parsed.argc());
-    println!(
-        "There are {} environment variables.",
-        parsed.envv_ptr_iter().count()
-    );
+    println!("  argv (raw)");
+    for (i, arg) in parsed.argv_raw_iter().enumerate() {
+        println!("    [{i}] @ {arg:?}");
+    }
+    println!("  argv");
+    // SAFETY: The pointers are valid in the address space of this process.
+    for (i, arg) in unsafe { parsed.argv_iter() }.enumerate() {
+        println!("    [{i}] {arg:?}");
+    }
+
+    println!("There are {} environment variables.", parsed.envc());
+    println!("  envv (raw)");
+    for (i, env) in parsed.envv_raw_iter().enumerate() {
+        println!("    [{i}] {env:?}");
+    }
+    println!("  envv");
+    // SAFETY: The pointers are valid in the address space of this process.
+    for (i, env) in unsafe { parsed.envv_iter() }.enumerate() {
+        println!("    [{i}] {env:?}");
+    }
+
     println!(
         "There are {} auxiliary vector entries/AT variables.",
-        parsed.aux_serialized_iter().count()
+        parsed.auxv_raw_iter().count()
     );
-
-    println!("  argv");
-    // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-    for (i, arg) in unsafe { parsed.argv_iter() }.enumerate() {
-        println!("    [{}] @ {:?}", i, arg);
-    }
-
-    println!("  envp");
-    // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-    for (i, env) in unsafe { parsed.envv_iter() }.enumerate() {
-        println!("    [{}] @ {:?}", i, env);
-    }
-
     println!("  aux");
     // ptr iter is safe for other address spaces; the other only because here user_addr == write_addr
-    for aux in unsafe { parsed.aux_var_iter() } {
+    for aux in unsafe { parsed.auxv_iter() } {
         if aux.key().value_in_data_area() {
             println!("    {:?} => @ {:?}", aux.key(), aux);
         } else {
