@@ -21,15 +21,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-#![no_start]
-#![feature(start)]
+#![no_main]
 
 use linux_libc_auxv::{InitialLinuxLibcStackLayout};
 use std::mem::size_of;
+use std::slice;
 
 /// Example that parses the layout and prints it. Only runs on Linux.
-#[start]
-fn start(_argc: isize, argv: *const *const u8) -> isize {
+#[unsafe(no_mangle)]
+fn main(_argc: isize, argv: *const *const u8) -> isize {
     let buf = unsafe {
         // the stack layout begins `size_of::<usize>()` bytes before argv (at the address of argc)
         let ptr_layout_begin = argv.cast::<u8>().sub(size_of::<usize>());
