@@ -1,7 +1,10 @@
 name: Build
 
-# Triggers the workflow on push or pull request events (for any branch in a repository)
-on: [ push, pull_request ]
+on: [ push, pull_request, merge_group ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,19 +17,18 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.56.1
+          - 1.85.0 # MSRV
     steps:
       - uses: actions/checkout@v2
-          # Important preparation step: override the latest default Rust version in GitHub CI
-        # with the current value of the iteration in the "strategy.matrix.rust"-array.
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: default
           toolchain: ${{ matrix.rust }}
-          override: true
-      - run: cargo build
-      - run: cargo build --example build_and_parse
-      - run: cargo build --example minimal
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --no-default-features
+      - run: cargo build --features alloc
+      - run: cargo build --features alloc,builder
+      - run: cargo build --all-targets --features alloc,builder
       - run: cargo test
 
       # test 32-bit build (because AT-values are usize)
@@ -34,10 +36,21 @@ jobs:
       - run: cargo build --target i686-unknown-linux-musl
       - run: cargo test --target i686-unknown-linux-musl
 
+      # run examples: The test here is that they don't crash
+      - run: cargo run --example minimal_builder
+      - run: cargo run --example minimal_builder --target i686-unknown-linux-musl
+      - run: cargo run --example linux_print_layout -- first second third
+      - run: cargo run --example linux_print_layout --target i686-unknown-linux-musl -- first second third
+
       # test `no_std`-build with some `no_std`-target
       - run: rustup target add thumbv7em-none-eabihf
       - run: cargo build --target thumbv7em-none-eabihf
 
+      # Run miri
+      - run: rustup component add miri
+        if: matrix.rust == 'nightly'
+      - run: cargo +nightly miri test
+        if: matrix.rust == 'nightly'
   style_checks:
     runs-on: ubuntu-latest
     strategy:
@@ -46,16 +59,14 @@ jobs:
           - stable
     steps:
       - uses: actions/checkout@v2
-          # Important preparation step: override the latest default Rust version in GitHub CI
-        # with the current value of the iteration in the "strategy.matrix.rust"-array.
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: default
           toolchain: ${{ matrix.rust }}
-          override: true
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Rustfmt
         run: cargo fmt -- --check
       - name: Clippy
-        run: cargo clippy
+        run: cargo clippy --all-targets
       - name: Rustdoc
-        run: cargo doc
+        run: cargo doc --no-deps --document-private-items

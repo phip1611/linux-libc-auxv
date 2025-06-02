@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2021 Philipp Schuster
+Copyright (c) 2025 Philipp Schuster
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,19 +22,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 use core::cmp::Ordering;
-use enum_iterator::IntoEnumIterator;
 
-/// All types of auxiliary variables that Linux supports for the initial stack.
-/// Also called "AT"-variables in Linux source code.
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, thiserror::Error)]
+#[error("invalid aux var type: {0}")]
+pub struct ParseAuxVarTypeError(usize);
+
+/// Rust-style representation of the auxiliary variable's type.
 ///
-/// According to some Linux code comments, `0-17` are architecture independent
-/// The ones above and including `32` are for `x86_64`. Values above 40 are for power PC.
+/// Also see [`AuxVar`].
 ///
-/// More info:
+/// - `0-17` are architecture independent
+/// - `>=32` are for `x86_64`.
+/// - `>=40` are for power PC.
+///
+/// ## More Info
 /// * <https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/auxvec.h>
-/// * <https://elixir.bootlin.com/linux/latest/source/fs/binfmt_elf.c#L259>
-/// * <https://man7.org/linux/man-pages/man3/getauxval.3.html>
-#[derive(Copy, Clone, Debug, PartialEq, Eq, IntoEnumIterator)]
+///
+/// [`AuxVar`]: crate::AuxVar
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub enum AuxVarType {
     // ### architecture neutral
@@ -98,13 +103,21 @@ pub enum AuxVarType {
     SysinfoEhdr = 33,
 
     // ### according to Linux code: from here: PowerPC
+    /// L1 instruction cache size
     L1iCacheSize = 40,
+    /// L1 instruction cache geometry
     L1iCacheGeometry = 41,
+    /// L1 cache geometry
     L1dCacheSize = 42,
+    /// L1 cache size
     L1dCacheGeometry = 43,
+    /// L2 cache size
     L2CacheSize = 44,
+    /// L2 cache geometry
     L2CacheGeometry = 45,
+    /// L3 cache size
     L3CacheSize = 46,
+    /// L3 cache geometry
     L3CacheGeometry = 47,
 
     /// Minimal stack size for signal delivery.
@@ -112,100 +125,154 @@ pub enum AuxVarType {
 }
 
 impl AuxVarType {
+    /// Returns an array with all variants.
+    #[must_use]
+    pub const fn variants() -> &'static [Self] {
+        &[
+            Self::Null,
+            Self::Ignore,
+            Self::ExecFd,
+            Self::Phdr,
+            Self::Phent,
+            Self::Phnum,
+            Self::Pagesz,
+            Self::Base,
+            Self::Flags,
+            Self::Entry,
+            Self::NotElf,
+            Self::Uid,
+            Self::EUid,
+            Self::Gid,
+            Self::EGid,
+            Self::Platform,
+            Self::HwCap,
+            Self::Clktck,
+            Self::Secure,
+            Self::BasePlatform,
+            Self::Random,
+            Self::HwCap2,
+            Self::ExecFn,
+            Self::Sysinfo,
+            Self::SysinfoEhdr,
+            Self::L1iCacheSize,
+            Self::L1iCacheGeometry,
+            Self::L1dCacheSize,
+            Self::L1dCacheGeometry,
+            Self::L2CacheSize,
+            Self::L2CacheGeometry,
+            Self::L3CacheSize,
+            Self::L3CacheGeometry,
+            Self::MinSigStkSz,
+        ]
+    }
+
+    /// Returns the underlying ABI-compatible integer value.
+    #[must_use]
     pub const fn val(self) -> usize {
         self as _
     }
 
-    /// If this is true, the value of the key should be interpreted as pointer into
-    /// the aux vector data area. Otherwise, the value of the key is an immediate value/integer.
-    // TODO move to AuxVar?!
+    /// If this is true, the value of the key should be interpreted as pointer
+    /// into the aux vector data area. Otherwise, the value of the key is an
+    /// immediate value/integer.
+    #[must_use]
     pub const fn value_in_data_area(self) -> bool {
         // this info can be found here:
         // https://elixir.bootlin.com/linux/latest/source/fs/binfmt_elf.c#L259
         match self {
-            AuxVarType::Null => false,
-            AuxVarType::Ignore => false,
-            AuxVarType::ExecFd => false,
-            AuxVarType::Phdr => false,
-            AuxVarType::Phent => false,
-            AuxVarType::Phnum => false,
-            AuxVarType::Pagesz => false,
-            AuxVarType::Base => false,
-            AuxVarType::Flags => false,
-            AuxVarType::Entry => false,
-            AuxVarType::NotElf => false,
-            AuxVarType::Uid => false,
-            AuxVarType::EUid => false,
-            AuxVarType::Gid => false,
-            AuxVarType::EGid => false,
+            Self::Null => false,
+            Self::Ignore => false,
+            Self::ExecFd => false,
+            Self::Phdr => false,
+            Self::Phent => false,
+            Self::Phnum => false,
+            Self::Pagesz => false,
+            Self::Base => false,
+            Self::Flags => false,
+            Self::Entry => false,
+            Self::NotElf => false,
+            Self::Uid => false,
+            Self::EUid => false,
+            Self::Gid => false,
+            Self::EGid => false,
             // references C-str
-            AuxVarType::Platform => true,
-            AuxVarType::HwCap => false,
-            AuxVarType::Clktck => false,
-            AuxVarType::Secure => false,
+            Self::Platform => true,
+            Self::HwCap => false,
+            Self::Clktck => false,
+            Self::Secure => false,
             // references C-str
-            AuxVarType::BasePlatform => true,
+            Self::BasePlatform => true,
             // references random bytes
-            AuxVarType::Random => true,
-            AuxVarType::HwCap2 => false,
+            Self::Random => true,
+            Self::HwCap2 => false,
             // references C-str
-            AuxVarType::ExecFn => true,
-            AuxVarType::SysinfoEhdr => false,
-            AuxVarType::Sysinfo => false,
-            AuxVarType::L1iCacheSize => false,
-            AuxVarType::L1iCacheGeometry => false,
-            AuxVarType::L1dCacheSize => false,
-            AuxVarType::L1dCacheGeometry => false,
-            AuxVarType::L2CacheSize => false,
-            AuxVarType::L2CacheGeometry => false,
-            AuxVarType::L3CacheSize => false,
-            AuxVarType::L3CacheGeometry => false,
-            AuxVarType::MinSigStkSz => false,
+            Self::ExecFn => true,
+            Self::SysinfoEhdr => false,
+            Self::Sysinfo => false,
+            Self::L1iCacheSize => false,
+            Self::L1iCacheGeometry => false,
+            Self::L1dCacheSize => false,
+            Self::L1dCacheGeometry => false,
+            Self::L2CacheSize => false,
+            Self::L2CacheGeometry => false,
+            Self::L3CacheSize => false,
+            Self::L3CacheGeometry => false,
+            Self::MinSigStkSz => false,
         }
     }
 
-    /// Most of the auxiliary vector entries where [`Self::value_is_cstr`] is true,
-    /// represent a null-terminated C-string.
+    /// The payload of entries where this returns true represents a
+    /// null-terminated C-string.
+    #[must_use]
     pub fn value_is_cstr(self) -> bool {
         self.value_in_data_area()
             && [Self::Platform, Self::BasePlatform, Self::ExecFn].contains(&self)
     }
 
-    /// The payload of some [`AuxVarType`] is stored in the aux var data area. Some of these
-    /// data is null-terminated. Some has a fixed size. This helps to find out if there
-    /// is a fixed size.
+    /// The payload of some [`AuxVarType`] is stored in the aux var data area.
+    /// Most of these payloads are variable-length and null-terminated. If they
+    /// have a fixed size, then this function returns it.
+    #[must_use]
     pub const fn data_area_val_size_hint(self) -> Option<usize> {
         match self {
-            AuxVarType::Random => Some(16),
+            Self::Random => Some(16),
             _ => None,
         }
     }
 }
 
-impl From<usize> for AuxVarType {
-    fn from(val: usize) -> Self {
-        for variant in Self::into_enum_iter() {
-            if variant.val() == val {
-                return variant;
+impl From<AuxVarType> for usize {
+    fn from(value: AuxVarType) -> Self {
+        value.val()
+    }
+}
+
+impl TryFrom<usize> for AuxVarType {
+    type Error = ParseAuxVarTypeError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        for variant in Self::variants() {
+            if variant.val() == value {
+                return Ok(*variant);
             }
         }
-        panic!("invalid variant {}", val);
+        Err(ParseAuxVarTypeError(value))
     }
 }
 
 impl PartialOrd for AuxVarType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if matches!(self, Self::Null) && !matches!(other, Self::Null) {
-            Some(Ordering::Greater)
-        } else {
-            self.val().partial_cmp(&other.val())
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for AuxVarType {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        if matches!(self, Self::Null) && !matches!(other, Self::Null) {
+            Ordering::Greater
+        } else {
+            self.val().cmp(&other.val())
+        }
     }
 }
 
@@ -214,8 +281,16 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    /// Tests that the ATNull entry always comes last in an ordered collection. This enables
-    /// us to easily write all AT-VARs at once but keep the terminating null entry at the end.
+    #[test]
+    fn test_variants_are_sorted() {
+        let mut variants = AuxVarType::variants().to_vec();
+        variants.sort();
+        assert_eq!(AuxVarType::variants(), variants.as_slice());
+    }
+
+    /// Tests that the ATNull entry always comes last in an ordered collection.
+    /// This enables us to easily write all AT-VARs at once but keep the
+    /// terminating null entry at the end.
     #[test]
     fn test_aux_var_key_order() {
         let mut set = BTreeSet::new();
@@ -224,6 +299,6 @@ mod tests {
         set.insert(AuxVarType::Null);
         set.insert(AuxVarType::Clktck);
         set.insert(AuxVarType::ExecFn);
-        assert_eq!(set.into_iter().last().unwrap(), AuxVarType::Null);
+        assert_eq!(set.last(), Some(&AuxVarType::Null));
     }
 }
