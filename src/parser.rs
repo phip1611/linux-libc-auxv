@@ -67,6 +67,7 @@ impl<'a> StackLayoutRef<'a> {
     ///
     /// The `argc` determines whether `bytes` start with the `argc` argument
     /// (=> `None`) or if `bytes` already point to the start of `argv`.
+    #[must_use]
     pub fn new(bytes: &'a [u8], argc: Option<usize>) -> Self {
         assert_eq!(bytes.as_ptr().align_offset(align_of::<usize>()), 0);
         Self { bytes, argc }
@@ -118,6 +119,7 @@ impl<'a> StackLayoutRef<'a> {
     // ========== END buffer get functions ==========
 
     /// Returns the number of arguments.
+    #[must_use]
     pub fn argc(&self) -> usize {
         self.argc.unwrap_or_else(|| unsafe {
             // the first `usize` is the `argc` argument
@@ -131,11 +133,13 @@ impl<'a> StackLayoutRef<'a> {
     }
 
     /// Returns the number of environment variables.
+    #[must_use]
     pub fn envc(&self) -> usize {
         self.envv_raw_iter().count()
     }
 
     /// Returns the number of auxiliary vector entries.
+    #[must_use]
     pub fn auxvc(&self) -> usize {
         self.auxv_raw_iter().count()
     }
@@ -601,7 +605,7 @@ mod tests {
                     .align_offset(align_of::<usize>()),
                 0
             );
-            
+
             // Just printing uncovers memory errors
             layout
                 .argv_raw_iter()
@@ -620,13 +624,13 @@ mod tests {
                     .align_offset(align_of::<usize>()),
                 0
             );
-            
+
             // Just printing uncovers memory errors
             layout
                 .envv_raw_iter()
                 .enumerate()
                 .for_each(|(i, ptr)| eprintln!("  env {i:>2}: {ptr:?}"));
-            
+
             assert_eq!(layout.envv_raw_iter().count(), 139);
         }
 
@@ -639,7 +643,7 @@ mod tests {
                     .align_offset(align_of::<usize>()),
                 0
             );
-            
+
             // Just printing uncovers memory errors
             layout
                 .auxv_raw_iter()

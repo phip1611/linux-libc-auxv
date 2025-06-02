@@ -41,6 +41,7 @@ pub struct StackLayoutBuilder<'a> {
 
 impl<'a> StackLayoutBuilder<'a> {
     /// Creates a mew bioöder-
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             argv: vec![],
@@ -104,6 +105,7 @@ impl<'a> StackLayoutBuilder<'a> {
     }
 
     /// Adds an [`AuxVar`] to the builder.
+    #[must_use]
     pub fn add_auxv(mut self, aux: AuxVar<'a>) -> Self {
         // Ignore, we do this automatically in the end.
         if aux != AuxVar::Null {
@@ -201,6 +203,7 @@ impl<'a> StackLayoutBuilder<'a> {
     /// - `target_addr`: The address the stack layout in the target address space.
     ///   This may be a user-space address of another process. If this is
     ///   `None` then the address of the buffer will be used.
+    #[must_use]
     pub fn build(mut self, target_addr: Option<usize>) -> ABox<[u8]> {
         if Some(&AuxVar::Null) != self.auxv.last() {
             self.auxv.push(AuxVar::Null);

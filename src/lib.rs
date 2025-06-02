@@ -136,6 +136,7 @@ SOFTWARE.
     clippy::all,
     clippy::cargo,
     clippy::nursery,
+    clippy::must_use_candidate,
     // clippy::restriction,
     // clippy::pedantic
 )]
@@ -146,6 +147,7 @@ SOFTWARE.
     clippy::redundant_pub_crate,
     clippy::fallible_impl_from
 )]
+#![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 #![deny(rustdoc::all)]
 #![no_std]

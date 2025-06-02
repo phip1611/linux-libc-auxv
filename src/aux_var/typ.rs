@@ -103,13 +103,21 @@ pub enum AuxVarType {
     SysinfoEhdr = 33,
 
     // ### according to Linux code: from here: PowerPC
+    /// L1 instruction cache size
     L1iCacheSize = 40,
+    /// L1 instruction cache geometry
     L1iCacheGeometry = 41,
+    /// L1 cache geometry
     L1dCacheSize = 42,
+    /// L1 cache size
     L1dCacheGeometry = 43,
+    /// L2 cache size
     L2CacheSize = 44,
+    /// L2 cache geometry
     L2CacheGeometry = 45,
+    /// L3 cache size
     L3CacheSize = 46,
+    /// L3 cache geometry
     L3CacheGeometry = 47,
 
     /// Minimal stack size for signal delivery.
@@ -118,6 +126,7 @@ pub enum AuxVarType {
 
 impl AuxVarType {
     /// Returns an array with all variants.
+    #[must_use]
     pub const fn variants() -> &'static [Self] {
         &[
             Self::Null,
@@ -158,6 +167,7 @@ impl AuxVarType {
     }
 
     /// Returns the underlying ABI-compatible integer value.
+    #[must_use]
     pub const fn val(self) -> usize {
         self as _
     }
@@ -165,6 +175,7 @@ impl AuxVarType {
     /// If this is true, the value of the key should be interpreted as pointer
     /// into the aux vector data area. Otherwise, the value of the key is an
     /// immediate value/integer.
+    #[must_use]
     pub const fn value_in_data_area(self) -> bool {
         // this info can be found here:
         // https://elixir.bootlin.com/linux/latest/source/fs/binfmt_elf.c#L259
@@ -212,6 +223,7 @@ impl AuxVarType {
 
     /// The payload of entries where this returns true represents a
     /// null-terminated C-string.
+    #[must_use]
     pub fn value_is_cstr(self) -> bool {
         self.value_in_data_area()
             && [Self::Platform, Self::BasePlatform, Self::ExecFn].contains(&self)
@@ -220,6 +232,7 @@ impl AuxVarType {
     /// The payload of some [`AuxVarType`] is stored in the aux var data area.
     /// Most of these payloads are variable-length and null-terminated. If they
     /// have a fixed size, then this function returns it.
+    #[must_use]
     pub const fn data_area_val_size_hint(self) -> Option<usize> {
         match self {
             Self::Random => Some(16),

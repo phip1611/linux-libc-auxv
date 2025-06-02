@@ -321,6 +321,7 @@ impl<'a> AuxVar<'a> {
     }
 
     /// Returns the [`AuxVarType`] this aux var corresponds to.
+    #[must_use]
     pub const fn key(&self) -> AuxVarType {
         match self {
             AuxVar::Null => AuxVarType::Null,
@@ -365,6 +366,7 @@ impl<'a> AuxVar<'a> {
     ///
     /// This only works for variants that do not reference data exceeding the
     /// size of an `usize`.
+    #[must_use]
     pub fn value_raw(&self) -> usize {
         match self {
             AuxVar::Platform(_)
@@ -422,6 +424,7 @@ impl<'a> AuxVar<'a> {
 
     /// Returns a value if the corresponding entry corresponds to a basic
     /// value/integer, and not a pointer, flags, or a boolean.
+    #[must_use]
     pub const fn value_integer(&self) -> Option<usize> {
         match self {
             AuxVar::ExecFd(val) => Some(*val),
@@ -450,6 +453,7 @@ impl<'a> AuxVar<'a> {
 
     /// Returns the [`AuxVarFlags`] if the corresponding entry is of type
     /// [`AuxVarType::Flags`].
+    #[must_use]
     pub const fn value_flags(&self) -> Option<AuxVarFlags> {
         match self {
             AuxVar::Flags(flags) => Some(*flags),
@@ -459,6 +463,7 @@ impl<'a> AuxVar<'a> {
 
     /// Returns a value if the corresponding entry corresponds to a boolean,
     /// and not a pointer, flags, or a basic value/integer.
+    #[must_use]
     pub const fn value_boolean(&self) -> Option<bool> {
         match self {
             AuxVar::NotElf(val) => Some(*val),
@@ -472,6 +477,7 @@ impl<'a> AuxVar<'a> {
     ///
     /// This only affects entries that point to memory outside the stack layout,
     /// i.e., the aux vector data area.
+    #[must_use]
     pub const fn value_ptr(&self) -> Option<*const u8> {
         match self {
             AuxVar::Phdr(val) => Some(*val),
@@ -489,6 +495,7 @@ impl<'a> AuxVar<'a> {
     ///
     /// This function is safe, because the creation during parsing already guarantee memory
     /// safety (the addresses are accessed).
+    #[must_use]
     pub fn value_payload_bytes(&'a self) -> Option<&'a [u8]> {
         match self {
             AuxVar::Random(bytes) => Some(&bytes[..]),
@@ -502,6 +509,7 @@ impl<'a> AuxVar<'a> {
     ///
     /// This function is safe, because the creation during parsing already guarantee memory
     /// safety (the addresses are accessed).
+    #[must_use]
     pub const fn value_payload_str(&'a self) -> Option<&'a AuxVarString<'a>> {
         match self {
             AuxVar::Platform(val) => Some(val),

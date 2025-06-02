@@ -33,6 +33,7 @@ impl AuxVarRaw {
     }
 
     /// Returns the raw value.
+    #[must_use]
     pub const fn value(&self) -> usize {
         self.value
     }
