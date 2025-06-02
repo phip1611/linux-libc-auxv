@@ -1,7 +1,10 @@
 name: Build
 
-# Triggers the workflow on push or pull request events (for any branch in a repository)
-on: [ push, pull_request ]
+on: [ push, pull_request, merge_group ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,13 +20,11 @@ jobs:
           - 1.85.0 # MSRV
     steps:
       - uses: actions/checkout@v2
-          # Important preparation step: override the latest default Rust version in GitHub CI
-        # with the current value of the iteration in the "strategy.matrix.rust"-array.
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: default
           toolchain: ${{ matrix.rust }}
-          override: true
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo build --no-default-features
       - run: cargo build --features alloc
       - run: cargo build --features alloc,builder
@@ -46,10 +47,10 @@ jobs:
       - run: cargo build --target thumbv7em-none-eabihf
 
       # Run miri
-      - run: |
-          rustup toolchain add nightly
-          rustup component add miri
+      - run: rustup component add miri
+        if: matrix.rust == 'nightly'
       - run: cargo +nightly miri test
+        if: matrix.rust == 'nightly'
   style_checks:
     runs-on: ubuntu-latest
     strategy:
@@ -58,13 +59,11 @@ jobs:
           - stable
     steps:
       - uses: actions/checkout@v2
-          # Important preparation step: override the latest default Rust version in GitHub CI
-        # with the current value of the iteration in the "strategy.matrix.rust"-array.
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: default
           toolchain: ${{ matrix.rust }}
-          override: true
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Rustfmt
         run: cargo fmt -- --check
       - name: Clippy

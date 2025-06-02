@@ -221,7 +221,7 @@ impl<'a> StackLayoutBuilder<'a> {
         };
 
         // If this is None, this will cause that the process creating this
-        // can also parse the structure entirely without memory issus.
+        // can also parse the structure entirely without memory issues.
         let target_addr = target_addr.unwrap_or(buffer.as_ptr() as usize);
 
         let mut serializer = StackLayoutSerializer::new(
