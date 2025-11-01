@@ -30,6 +30,6 @@ builder = ["alloc", "dep:aligned-vec"]
 
 [dependencies]
 aligned-vec = { version = "0.6.4", default-features = false, optional = true }
-bitflags = "2.9.1"
+bitflags = "2.10.0"
 thiserror = { version = "2.0.12", default-features = false }
 
