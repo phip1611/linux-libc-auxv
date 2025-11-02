@@ -34,6 +34,7 @@ use core::ffi::CStr;
 use core::fmt::{Debug, Display, Formatter};
 #[cfg(feature = "alloc")]
 use {alloc::borrow::ToOwned, alloc::ffi::CString, alloc::string::String, alloc::string::ToString};
+
 bitflags::bitflags! {
     /// Flags for the auxiliary vector. See <https://elixir.bootlin.com/linux/v5.15.5/source/include/uapi/linux/binfmts.h#L23>.
     #[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]

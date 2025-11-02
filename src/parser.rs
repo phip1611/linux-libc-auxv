@@ -307,8 +307,12 @@ impl<'a> Iterator for CStrArrayIter<'a> {
         // Assert in range
         {
             let end = &raw const self.buffer[self.buffer.len() - 1];
-            assert!(entry > self.buffer.as_ptr());
-            assert!(entry <= end);
+            assert!(
+                entry > self.buffer.as_ptr(),
+                "Failed `entry > self.buffer.as_ptr()`: {entry:#?} > {:#?}",
+                self.buffer.as_ptr()
+            );
+            assert!(entry <= end, "Failed `entry <= end`: {entry:#?} > {end:#?}");
         }
 
         // offset of the pointer within the buffer
