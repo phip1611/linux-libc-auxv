@@ -44,9 +44,9 @@ impl<'a> StackLayoutBuilder<'a> {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            argv: vec![],
-            envv: vec![],
-            auxv: vec![],
+            argv: Vec::new(),
+            envv: Vec::new(),
+            auxv: Vec::new(),
         }
     }
 

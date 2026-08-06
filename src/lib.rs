@@ -152,7 +152,6 @@ SOFTWARE.
 #![deny(rustdoc::all)]
 #![no_std]
 
-#[cfg_attr(feature = "alloc", macro_use)]
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
