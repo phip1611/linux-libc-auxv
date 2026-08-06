@@ -40,7 +40,7 @@ pub struct StackLayoutBuilder<'a> {
 }
 
 impl<'a> StackLayoutBuilder<'a> {
-    /// Creates a mew bioöder-
+    /// Creates a new builder.
     #[must_use]
     pub const fn new() -> Self {
         Self {
