@@ -277,7 +277,7 @@ impl<'a> AuxVar<'a> {
             AuxVarType::Random => {
                 let begin_index = serialized.value() - buffer.as_ptr() as usize;
                 let end_index = begin_index + 16 /* 16 bytes of randomness */;
-                assert!(end_index < buffer.len());
+                assert!(end_index <= buffer.len());
 
                 let mut bytes = [0; 16];
                 bytes.copy_from_slice(&buffer[begin_index..end_index]);
@@ -549,5 +549,16 @@ mod tests {
         set.insert(AuxVar::Clktck(0x1337));
         set.insert(AuxVar::ExecFn(c"./executable".into()));
         assert_eq!(set.iter().last().unwrap().key(), AuxVarType::Null);
+    }
+
+    #[test]
+    fn test_random_payload_can_end_at_buffer_boundary() {
+        let bytes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        let raw = AuxVarRaw::new(AuxVarType::Random, bytes.as_ptr() as usize);
+
+        // SAFETY: The raw pointer references the exact buffer passed in here.
+        let aux = unsafe { AuxVar::from_raw(&raw, &bytes) };
+
+        assert_eq!(aux, AuxVar::Random(bytes));
     }
 }
