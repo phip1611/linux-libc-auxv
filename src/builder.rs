@@ -40,13 +40,13 @@ pub struct StackLayoutBuilder<'a> {
 }
 
 impl<'a> StackLayoutBuilder<'a> {
-    /// Creates a mew bioöder-
+    /// Creates a new builder.
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            argv: vec![],
-            envv: vec![],
-            auxv: vec![],
+            argv: Vec::new(),
+            envv: Vec::new(),
+            auxv: Vec::new(),
         }
     }
 
